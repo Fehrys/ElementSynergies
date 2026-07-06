@@ -210,15 +210,24 @@ Expected: FAIL with "Cannot find module '../../src/core/rng'"
 - [ ] **Step 3: Write minimal implementation**
 
 ```ts
+// A random-number source: call it to get the next value in [0, 1).
+// Every core module takes a RandomFn instead of calling Math.random()
+// directly, so tests and e2e specs can inject a seeded, reproducible one.
 export type RandomFn = () => number;
 
+// Mulberry32: a small, fast, deterministic PRNG. Given the same seed it
+// always produces the same sequence of numbers — this is what makes
+// board state reproducible across unit tests, e2e tests (via ?seed=N),
+// and manual debugging.
 export function mulberry32(seed: number): RandomFn {
   let a = seed;
   return function (): number {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
+    // Two rounds of xorshift-multiply mixing to scramble the state.
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    // Fold the 32-bit integer state down into a float in [0, 1).
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
@@ -339,10 +348,15 @@ Expected: FAIL with "Cannot find module '../../src/core/grid'"
 ```ts
 import { RandomFn } from './rng';
 
+// The 4 element colors in this prototype (the real game's 5th color and
+// dead-color mechanic were dropped — see the design spec).
 export type ElementColor = 'red' | 'green' | 'yellow' | 'blue';
 
 export const ELEMENT_COLORS: ElementColor[] = ['red', 'green', 'yellow', 'blue'];
 
+// A cell's position using the board's rendered (row, col) offset scheme —
+// this is what every other module and the scene pass around. Internally,
+// getNeighbors() converts to axial coordinates to do the actual hex math.
 export interface CellCoord {
   row: number;
   col: number;
@@ -350,15 +364,21 @@ export interface CellCoord {
 
 export const ROWS = 7;
 
+// Honeycomb rows alternate width: even rows are the wide (5-cell) rows,
+// odd rows are the narrow (4-cell), staggered rows.
 export function rowWidth(row: number): number {
   return row % 2 === 0 ? 5 : 4;
 }
 
+// True if (row, col) is a real cell on the 32-cell board.
 export function isValidCell(row: number, col: number): boolean {
   if (row < 0 || row >= ROWS) return false;
   return col >= 0 && col < rowWidth(row);
 }
 
+// Every cell on the board, in row-major order. The canonical source of
+// "all 32 cells" — refill.ts, specialTiles.ts, and BattleScene all iterate
+// this instead of re-deriving row/col ranges themselves.
 export function getAllCells(): CellCoord[] {
   const cells: CellCoord[] = [];
   for (let row = 0; row < ROWS; row++) {
@@ -369,15 +389,22 @@ export function getAllCells(): CellCoord[] {
   return cells;
 }
 
+// Axial hex coordinates (q, r). Unlike the offset (row, col) scheme, axial
+// coordinates make "is this a neighbor" and "walk in a straight line"
+// simple constant-offset math regardless of row-width staggering.
 export interface AxialCoord {
   q: number;
   r: number;
 }
 
+// Convert rendered offset coordinates to axial. r is just the row; q
+// removes the stagger offset so that hex adjacency becomes a fixed set
+// of +/-1 deltas (see AXIAL_DIRECTIONS below).
 export function toAxial(row: number, col: number): AxialCoord {
   return { q: col - Math.floor(row / 2), r: row };
 }
 
+// Inverse of toAxial — converts back to the rendered (row, col) scheme.
 export function toOffset(axial: AxialCoord): CellCoord {
   const row = axial.r;
   const col = axial.q + Math.floor(row / 2);
@@ -400,12 +427,19 @@ export const AXIAL_DIRECTIONS: AxialCoord[] = [
   { q: 0, r: 1 },
 ];
 
+// Which AXIAL_DIRECTIONS index pair is the same-row axis vs. the two
+// diagonal axes — named here once so specialTiles.ts doesn't hardcode
+// magic indices when picking sword's line direction.
 export const ROW_AXIS_DIRECTION_INDICES: [number, number] = [0, 3];
 export const DIAGONAL_AXIS_DIRECTION_INDICES: [number, number][] = [
   [1, 4],
   [2, 5],
 ];
 
+// All in-bounds hex neighbors of (row, col) — up to 6 for interior cells,
+// fewer at the board edges. This is the single source of truth for
+// adjacency used by chain validation (chain.ts) and bomb's blast radius
+// (specialTiles.ts).
 export function getNeighbors(row: number, col: number): CellCoord[] {
   const axial = toAxial(row, col);
   const neighbors: CellCoord[] = [];
@@ -418,8 +452,12 @@ export function getNeighbors(row: number, col: number): CellCoord[] {
   return neighbors;
 }
 
+// The 6 special tiles: 3 base tiles (spawn via random refill chance) and
+// their 3 "improved" upgrades (spawn only via a combo-depth-3 bonus).
 export type SpecialTileType = 'bomb' | 'sword' | 'bow' | 'dynamite' | 'doubleSword' | 'doubleArrowBow';
 
+// What a single board cell currently holds. `special` tiles are colorless
+// (see chain.ts's pickup rule); `portal` is the rainbow bridge orb.
 export type CellContent =
   | { type: 'stone'; color: ElementColor }
   | { type: 'special'; tile: SpecialTileType }
@@ -430,6 +468,10 @@ export const PORTAL_SPAWN_CHANCE = 0.02;
 export const BASE_TILE_SPAWN_CHANCE = 0.03;
 const BASE_TILE_TYPES: SpecialTileType[] = ['bomb', 'sword', 'bow'];
 
+// Rolls what a freshly-filled cell becomes: small chance of a portal,
+// small chance of a random base special tile, otherwise a plain stone of
+// one of the 4 colors. Used both for the initial board fill and for every
+// cell refill.ts tops up after a clear.
 export function randomStone(rng: RandomFn): CellContent {
   const roll = rng();
   if (roll < PORTAL_SPAWN_CHANCE) {
@@ -443,6 +485,9 @@ export function randomStone(rng: RandomFn): CellContent {
   return { type: 'stone', color };
 }
 
+// Sparse board storage: only cells that have been explicitly set exist in
+// the map; anything else reads back as `{ type: 'empty' }`. This is the
+// single mutable piece of game state every core module operates on.
 export class HexGrid {
   private cells = new Map<string, CellContent>();
 
@@ -458,15 +503,21 @@ export class HexGrid {
     this.cells.set(this.key(row, col), content);
   }
 
+  // Convenience passthrough so callers only need a HexGrid instance in
+  // scope, not a separate import of the free getAllCells() function.
   getAllCells(): CellCoord[] {
     return getAllCells();
   }
 
+  // Convenience passthrough, same reasoning as getAllCells() above.
   getNeighbors(row: number, col: number): CellCoord[] {
     return getNeighbors(row, col);
   }
 }
 
+// Fills every one of the 32 cells with a freshly-rolled stone/tile/portal.
+// Used once at battle start; refill.ts handles topping up individual
+// cells after that (it calls randomStone() directly, not this).
 export function fillBoard(grid: HexGrid, rng: RandomFn): void {
   for (const { row, col } of getAllCells()) {
     grid.set(row, col, randomStone(rng));
@@ -692,15 +743,19 @@ Expected: FAIL with "Cannot find module '../../src/core/chain'"
 ```ts
 import { CellCoord, HexGrid, ElementColor } from './grid';
 
+// One scored segment of a validated chain. Normally there's exactly one
+// SubChain per drag; a portal splits a drag into two (one per color).
 export interface SubChain {
   color: ElementColor;
-  stoneCells: CellCoord[];
-  specialTileCells: CellCoord[];
+  stoneCells: CellCoord[]; // colored stones that deal damage (count = stoneCells.length)
+  specialTileCells: CellCoord[]; // colorless tiles riding along; cleared, but queued for wave 2
 }
 
 export interface ChainValidationResult {
   valid: boolean;
   subChains: SubChain[];
+  // The portal cell itself (0 or 1 entries) — shared by both sub-chains
+  // when present, so it's tracked separately rather than inside either one.
   portalCells: CellCoord[];
   reason?: string;
 }
@@ -715,13 +770,21 @@ function isAdjacent(grid: HexGrid, a: CellCoord, b: CellCoord): boolean {
   return grid.getNeighbors(a.row, a.col).some((n) => sameCell(n, b));
 }
 
+// Small helper so every rejection path returns the same shape without
+// repeating `{ valid: false, subChains: [], portalCells: [] }` everywhere.
 function invalid(reason: string): ChainValidationResult {
   return { valid: false, subChains: [], portalCells: [], reason };
 }
 
+// Validates a full dragged path and, if valid, splits it into scored
+// sub-chains. Called once per completed drag (resolution.ts's wave 1);
+// the caller is expected to already have stopped extending the path at
+// the last legal cell, so any invalid path here fails the whole chain
+// rather than being silently trimmed.
 export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidationResult {
   if (path.length === 0) return invalid('empty path');
 
+  // Rule: no revisiting/crossing a cell already in this drag.
   const seen = new Set<string>();
   for (const cell of path) {
     const key = `${cell.row},${cell.col}`;
@@ -729,16 +792,24 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
     seen.add(key);
   }
 
+  // Rule: every consecutive pair of cells must be hex-adjacent.
   for (let i = 1; i < path.length; i++) {
     if (!isAdjacent(grid, path[i - 1], path[i])) return invalid('path is not contiguous');
   }
 
+  // The chain's color is whatever the drag started on; a drag must start
+  // on a stone (special tiles/portal can only be picked up mid-drag).
   const first = grid.get(path[0].row, path[0].col);
   if (first.type !== 'stone') return invalid('path must start on a stone');
 
   let activeColor: ElementColor = first.color;
   let portalIndex = -1;
 
+  // Walk the rest of the path enforcing the pickup rules:
+  // - matching-color stones extend the chain
+  // - special tiles are colorless and always allowed, without changing color
+  // - a portal (at most one) switches the active color to whatever follows it
+  // - anything else (wrong color, empty cell) invalidates the whole path
   for (let i = 1; i < path.length; i++) {
     const content = grid.get(path[i].row, path[i].col);
     if (content.type === 'stone') {
@@ -758,6 +829,10 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
     }
   }
 
+  // Split the path into 1 segment (no portal) or 2 segments (portal
+  // present), each spanning from its start to the portal (inclusive) and
+  // from the portal (inclusive) onward — the portal cell is shared by
+  // both segments, matching "portal counts toward both" in the spec.
   const segments: { color: ElementColor; start: number; end: number }[] = [];
   if (portalIndex === -1) {
     segments.push({ color: first.color, start: 0, end: path.length - 1 });
@@ -768,6 +843,9 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
     segments.push({ color: afterPortal.color, start: portalIndex, end: path.length - 1 });
   }
 
+  // Build a SubChain per segment, but only keep segments that reach the
+  // minimum length — a portal side that falls short simply contributes
+  // no sub-chain (design decision: it doesn't invalidate the other side).
   const subChains: SubChain[] = [];
   for (const segment of segments) {
     const stoneCells: CellCoord[] = [];
@@ -899,6 +977,9 @@ import {
 } from './grid';
 import { RandomFn } from './rng';
 
+// Walks outward from `origin` in both directions of one axis pair until
+// falling off the board, collecting every cell crossed (including the
+// origin itself). Used for sword (one axis) and double sword (both axes).
 function lineAlongAxis(origin: CellCoord, axisIndices: [number, number]): CellCoord[] {
   const cells: CellCoord[] = [origin];
   for (const dirIndex of axisIndices) {
@@ -914,6 +995,8 @@ function lineAlongAxis(origin: CellCoord, axisIndices: [number, number]): CellCo
   return cells;
 }
 
+// Removes duplicate coordinates while preserving first-seen order — needed
+// because double sword's two lines both include `origin`.
 function dedupeCells(cells: CellCoord[]): CellCoord[] {
   const seen = new Set<string>();
   const result: CellCoord[] = [];
@@ -927,6 +1010,9 @@ function dedupeCells(cells: CellCoord[]): CellCoord[] {
   return result;
 }
 
+// Sword only clears one diagonal axis — whichever of the two reaches
+// further from this position (more cells destroyed), per the design
+// decision to make the tile's value depend on where it lands.
 function favorableSwordAxis(origin: CellCoord): [number, number] {
   const [axisA, axisB] = DIAGONAL_AXIS_DIRECTION_INDICES;
   const lineA = lineAlongAxis(origin, axisA);
@@ -934,19 +1020,25 @@ function favorableSwordAxis(origin: CellCoord): [number, number] {
   return lineA.length >= lineB.length ? axisA : axisB;
 }
 
+// Bomb: itself plus every hex-adjacent neighbor (radius 1).
 function bombCells(grid: HexGrid, origin: CellCoord): CellCoord[] {
   return [origin, ...grid.getNeighbors(origin.row, origin.col)];
 }
 
+// Base sword: one full diagonal line (the favorable axis) through origin.
 function swordCells(origin: CellCoord): CellCoord[] {
   return lineAlongAxis(origin, favorableSwordAxis(origin));
 }
 
+// Improved sword: both diagonal lines through origin (superset of swordCells).
 function doubleSwordCells(origin: CellCoord): CellCoord[] {
   const [axisA, axisB] = DIAGONAL_AXIS_DIRECTION_INDICES;
   return dedupeCells([...lineAlongAxis(origin, axisA), ...lineAlongAxis(origin, axisB)]);
 }
 
+// Dynamite: every cell in the tile's raw offset column plus the two
+// neighboring columns, across all rows — a simple, deliberately non-hex-
+// axial notion of "column" shared with refill.ts's gravity grouping.
 function dynamiteCells(origin: CellCoord): CellCoord[] {
   const cells: CellCoord[] = [];
   for (const col of [origin.col - 1, origin.col, origin.col + 1]) {
@@ -957,6 +1049,9 @@ function dynamiteCells(origin: CellCoord): CellCoord[] {
   return cells;
 }
 
+// Shuffles all 32 cells (Fisher-Yates, driven by the injected rng so it's
+// reproducible) and takes the first `count` — used by bow (8) and double
+// arrow bow (16) to hit random distinct cells anywhere on the board.
 function randomDistinctCells(rng: RandomFn, count: number): CellCoord[] {
   const all = getAllCells();
   for (let i = all.length - 1; i > 0; i--) {
@@ -966,6 +1061,10 @@ function randomDistinctCells(rng: RandomFn, count: number): CellCoord[] {
   return all.slice(0, count);
 }
 
+// Single entry point resolution.ts calls for any special tile: given
+// where the tile sits and what type it is, returns every cell its effect
+// destroys. `grid` is only needed for bomb's neighbor lookup; `rng` is
+// only consumed by the two bow variants.
 export function getAffectedCells(
   grid: HexGrid,
   origin: CellCoord,
@@ -1067,6 +1166,10 @@ Expected: FAIL with "Cannot find module '../../src/core/refill'"
 import { HexGrid, CellCoord, CellContent, getAllCells, randomStone } from './grid';
 import { RandomFn } from './rng';
 
+// Groups all 32 cells by their raw offset `col` field (not axial q), each
+// list sorted top-to-bottom by row. This is a deliberate simplification
+// of "vertical" for a staggered honeycomb — good enough for gravity and
+// for dynamite's column-blast (specialTiles.ts), not a true hex axis.
 function columns(): Map<number, CellCoord[]> {
   const cols = new Map<number, CellCoord[]>();
   for (const cell of getAllCells()) {
@@ -1080,6 +1183,10 @@ function columns(): Map<number, CellCoord[]> {
   return cols;
 }
 
+// Per column, pushes every non-empty cell's content toward the bottom
+// (preserving relative order) and backfills the top with empty markers —
+// pure "gravity", no randomness, no matching. fillEmpty() (below) is what
+// turns those empty markers into new content.
 export function applyGravity(grid: HexGrid): void {
   for (const cells of columns().values()) {
     const contents: CellContent[] = cells.map((c) => grid.get(c.row, c.col));
@@ -1093,6 +1200,8 @@ export function applyGravity(grid: HexGrid): void {
   }
 }
 
+// Rolls fresh content (via randomStone) for every cell still empty after
+// gravity has compacted the board.
 export function fillEmpty(grid: HexGrid, rng: RandomFn): void {
   for (const cell of getAllCells()) {
     if (grid.get(cell.row, cell.col).type === 'empty') {
@@ -1101,6 +1210,9 @@ export function fillEmpty(grid: HexGrid, rng: RandomFn): void {
   }
 }
 
+// The single call resolution.ts makes after every clear: fall, then fill.
+// No auto-match scan happens here or anywhere else — chain reactions only
+// come from special tiles (see resolution.ts's wave loop).
 export function refillBoard(grid: HexGrid, rng: RandomFn): void {
   applyGravity(grid);
   fillEmpty(grid, rng);
@@ -1196,6 +1308,8 @@ export interface Character {
   atk: number;
 }
 
+// Exactly 4 characters, 1:1 with the 4 colors — no dead color, no
+// team-select, all 4 are always in the fight (see the design spec).
 export const ROSTER: Character[] = [
   { id: 'warrior', name: 'Warrior', color: 'red', atk: 50 },
   { id: 'archer', name: 'Archer', color: 'green', atk: 50 },
@@ -1203,6 +1317,10 @@ export const ROSTER: Character[] = [
   { id: 'mage', name: 'Mage', color: 'blue', atk: 50 },
 ];
 
+// Looks up which character owns a color. Throws rather than returning
+// null/undefined because every color always has a character in this
+// 4-color roster — a missing match would mean a real bug, not a valid
+// "dead color" case (that mechanic was removed).
 export function getCharacterForColor(roster: Character[], color: ElementColor): Character {
   const character = roster.find((c) => c.color === color);
   if (!character) {
@@ -1211,6 +1329,10 @@ export function getCharacterForColor(roster: Character[], color: ElementColor): 
   return character;
 }
 
+// The whole damage model: ATK times however many stones of that color
+// were destroyed. `count` is the manual chain's length for wave 1, or the
+// number of same-colored stones a special-tile effect destroyed for later
+// waves — no damping multiplier at any depth (see resolution.ts).
 export function calculateDamage(roster: Character[], color: ElementColor, count: number): number {
   const character = getCharacterForColor(roster, color);
   return character.atk * count;
@@ -1226,6 +1348,8 @@ export function createMonster(name: string, maxHp: number): Monster {
   return { name, maxHp, hp: maxHp };
 }
 
+// Returns a new Monster with hp reduced (never below 0) rather than
+// mutating in place, keeping combat state easy to reason about/test.
 export function applyDamage(monster: Monster, damage: number): Monster {
   return { ...monster, hp: Math.max(0, monster.hp - damage) };
 }
@@ -1381,12 +1505,17 @@ import { getAffectedCells } from './specialTiles';
 import { Character, calculateDamage } from './combat';
 import { refillBoard } from './refill';
 
+// One color's worth of damage dealt in a single wave (manual chain or
+// special-tile trigger) — resolveTurn can emit several per turn.
 export interface DamageEvent {
   color: ElementColor;
   count: number;
   damage: number;
 }
 
+// A special tile queued to fire in the next wave, remembered by its fixed
+// board coordinate and type at the moment it was destroyed (the tile
+// object itself is already gone from the grid by the time it "fires").
 export interface SpecialTileTrigger {
   cell: CellCoord;
   type: SpecialTileType;
@@ -1396,7 +1525,10 @@ export interface ResolutionResult {
   valid: boolean;
   damageEvents: DamageEvent[];
   totalDamage: number;
+  // Number of waves reached this turn: 1 = manual chain only, 2+ = however
+  // many rounds of special-tile chain reactions followed it.
   comboDepth: number;
+  // Which improved tile spawned from the combo-depth-3 bonus, if any.
   bonusTileSpawned: SpecialTileType | null;
   reason?: string;
 }
@@ -1408,6 +1540,10 @@ function cellKey(cell: CellCoord): string {
   return `${cell.row},${cell.col}`;
 }
 
+// Resolves one full player turn end-to-end: validates the drag, clears
+// and scores it, refills, then keeps resolving any special-tile chain
+// reaction it triggered (waves 2, 3, ...) until a wave destroys no
+// special tiles. This is the only function BattleScene calls per drag.
 export function resolveTurn(
   grid: HexGrid,
   roster: Character[],
@@ -1429,6 +1565,9 @@ export function resolveTurn(
   const damageEvents: DamageEvent[] = [];
   let triggers: SpecialTileTrigger[] = [];
 
+  // --- Wave 1: the manual chain itself ---
+  // Score and clear each sub-chain (portal-bridged chains produce two),
+  // recording any special tiles the drag touched so they fire in wave 2.
   for (const subChain of validation.subChains) {
     for (const cell of subChain.specialTileCells) {
       const content = grid.get(cell.row, cell.col);
@@ -1441,6 +1580,8 @@ export function resolveTurn(
     for (const cell of subChain.stoneCells) grid.set(cell.row, cell.col, { type: 'empty' });
     for (const cell of subChain.specialTileCells) grid.set(cell.row, cell.col, { type: 'empty' });
   }
+  // The shared portal cell (if any) is cleared once here, separately from
+  // either sub-chain's own cell lists.
   for (const cell of validation.portalCells) {
     grid.set(cell.row, cell.col, { type: 'empty' });
   }
@@ -1450,9 +1591,16 @@ export function resolveTurn(
   let comboDepth = 1;
   let bonusTileSpawned: SpecialTileType | null = null;
 
+  // --- Waves 2+: special-tile chain reaction ---
+  // Keeps looping as long as the previous wave queued at least one
+  // special tile to fire next. Each iteration is one "wave" / +1 combo depth.
   while (triggers.length > 0) {
     comboDepth += 1;
 
+    // All of this wave's tiles fire "simultaneously": compute every
+    // tile's affected cells against the same just-refilled board snapshot
+    // first, union them, then clear/score together — so one tile's blast
+    // never sees another tile's blast already applied.
     const affected = new Map<string, CellCoord>();
     for (const trigger of triggers) {
       for (const cell of getAffectedCells(grid, trigger.cell, trigger.type, rng)) {
@@ -1463,6 +1611,8 @@ export function resolveTurn(
     const colorCounts = new Map<ElementColor, number>();
     const nextTriggers: SpecialTileTrigger[] = [];
 
+    // Tally colored stones destroyed (for damage) and any special tiles
+    // caught in the blast (queued for the *next* wave), then clear the cell.
     for (const cell of affected.values()) {
       const content = grid.get(cell.row, cell.col);
       if (content.type === 'stone') {
@@ -1473,12 +1623,16 @@ export function resolveTurn(
       grid.set(cell.row, cell.col, { type: 'empty' });
     }
 
+    // One damage event per color hit this wave, full ATK*count, no damping.
     for (const [color, count] of colorCounts) {
       damageEvents.push({ color, count, damage: calculateDamage(roster, color, count) });
     }
 
     refillBoard(grid, rng);
 
+    // The very first time a resolution reaches combo depth 3, reward it
+    // with one random improved tile dropped into a random cell. Guarded
+    // by bonusTileSpawned so it can't re-trigger at depth 4, 5, ...
     if (comboDepth === COMBO_DEPTH_FOR_BONUS && bonusTileSpawned === null) {
       const tile = IMPROVED_TILES[Math.floor(rng() * IMPROVED_TILES.length)];
       const allCells = grid.getAllCells();
@@ -1537,6 +1691,9 @@ import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn } from '../core/resolution';
 
+// Pixel layout constants for the hex board. Exported so the Playwright
+// e2e test can compute the same screen coordinates for a known board
+// state instead of duplicating this math.
 export const ORIGIN_X = 60;
 export const ORIGIN_Y = 100;
 export const CELL_WIDTH = 56;
@@ -1550,6 +1707,8 @@ const COLOR_HEX: Record<ElementColor, number> = {
   blue: 0x3498db,
 };
 
+// Placeholder text labels standing in for real icons/art in this
+// vertical-slice prototype.
 const TILE_LABEL: Record<SpecialTileType, string> = {
   bomb: 'B',
   sword: 'S',
@@ -1559,6 +1718,8 @@ const TILE_LABEL: Record<SpecialTileType, string> = {
   doubleArrowBow: 'WW',
 };
 
+// Converts a logical (row, col) cell into the screen position of its
+// center, applying the honeycomb's half-cell-width shift on odd rows.
 export function cellToPixel(row: number, col: number): { x: number; y: number } {
   const shift = row % 2 === 1 ? CELL_WIDTH / 2 : 0;
   return {
@@ -1567,6 +1728,9 @@ export function cellToPixel(row: number, col: number): { x: number; y: number } 
   };
 }
 
+// The only scene in this prototype: renders the board + HP bar, turns
+// pointer drags into a CellCoord path, and hands each finished drag to
+// resolveTurn() — all puzzle/combat logic lives in src/core, not here.
 export class BattleScene extends Phaser.Scene {
   private grid!: HexGrid;
   private rng!: RandomFn;
@@ -1582,6 +1746,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   create(): void {
+    // A `?seed=N` query param swaps in a deterministic RNG so e2e tests
+    // (and manual debugging) can reproduce an exact board; otherwise use
+    // real randomness.
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     this.rng = seedParam ? mulberry32(Number(seedParam)) : Math.random;
 
@@ -1600,9 +1767,13 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
     this.input.on('pointerup', () => this.onPointerUp());
 
+    // Lets Playwright wait for/assert on scene state via plain DOM reads,
+    // since Phaser renders to canvas and isn't otherwise inspectable.
     document.body.setAttribute('data-scene', 'battle');
   }
 
+  // Hit-tests a pointer position against every cell's rendered center,
+  // returning whichever one it's within STONE_RADIUS of (or null).
   private cellAt(x: number, y: number): CellCoord | null {
     for (const cell of getAllCells()) {
       const p = cellToPixel(cell.row, cell.col);
@@ -1613,6 +1784,7 @@ export class BattleScene extends Phaser.Scene {
     return null;
   }
 
+  // Starts a new drag path if the press lands on a cell.
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
     const cell = this.cellAt(pointer.x, pointer.y);
     if (!cell) return;
@@ -1620,6 +1792,9 @@ export class BattleScene extends Phaser.Scene {
     this.path = [cell];
   }
 
+  // Extends the in-progress path whenever the pointer enters a new,
+  // not-yet-visited cell. Full legality (adjacency/color/min-length) is
+  // deferred to validateChain() at release time, not checked live here.
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.dragging) return;
     const cell = this.cellAt(pointer.x, pointer.y);
@@ -1630,6 +1805,8 @@ export class BattleScene extends Phaser.Scene {
     this.path.push(cell);
   }
 
+  // On release, hands the whole dragged path to the core engine, applies
+  // whatever damage came back, redraws, and checks for victory.
   private onPointerUp(): void {
     if (!this.dragging) return;
     this.dragging = false;
@@ -1650,6 +1827,9 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  // Full redraw of every cell from current grid state — simple or
+  // correct is preferred over incremental/animated updates for this
+  // vertical slice.
   private drawBoard(): void {
     this.boardLayer.removeAll(true);
     for (const cell of getAllCells()) {
@@ -1675,6 +1855,8 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  // Redraws the HP text/bar and mirrors the current HP into a DOM
+  // attribute so the Playwright e2e test can read it without parsing canvas.
   private drawHp(): void {
     this.hpText.setText(`${this.monster.name}: ${this.monster.hp}/${this.monster.maxHp}`);
     this.hpBar.clear();
@@ -1694,6 +1876,8 @@ export class BattleScene extends Phaser.Scene {
 import Phaser from 'phaser';
 import { BattleScene } from './scenes/BattleScene';
 
+// Game bootstrap: a single fixed-size canvas with BattleScene as the only
+// scene (no team-select, no menu — the battle starts immediately).
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: 480,
