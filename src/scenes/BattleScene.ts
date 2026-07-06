@@ -10,14 +10,10 @@ import {
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn } from '../core/resolution';
+import { cellToPixel } from './boardLayout';
 
-// Pixel layout constants for the hex board. Exported so the Playwright
-// e2e test can compute the same screen coordinates for a known board
-// state instead of duplicating this math.
-export const ORIGIN_X = 60;
-export const ORIGIN_Y = 100;
-export const CELL_WIDTH = 56;
-export const ROW_HEIGHT = 48;
+export { ORIGIN_X, ORIGIN_Y, CELL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
+
 const STONE_RADIUS = 22;
 
 const COLOR_HEX: Record<ElementColor, number> = {
@@ -37,16 +33,6 @@ const TILE_LABEL: Record<SpecialTileType, string> = {
   doubleSword: 'SS',
   doubleArrowBow: 'WW',
 };
-
-// Converts a logical (row, col) cell into the screen position of its
-// center, applying the honeycomb's half-cell-width shift on odd rows.
-export function cellToPixel(row: number, col: number): { x: number; y: number } {
-  const shift = row % 2 === 1 ? CELL_WIDTH / 2 : 0;
-  return {
-    x: ORIGIN_X + col * CELL_WIDTH + shift,
-    y: ORIGIN_Y + row * ROW_HEIGHT,
-  };
-}
 
 // The only scene in this prototype: renders the board + HP bar, turns
 // pointer drags into a CellCoord path, and hands each finished drag to
