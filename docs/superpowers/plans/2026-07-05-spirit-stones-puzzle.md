@@ -1441,16 +1441,21 @@ describe('resolveTurn', () => {
 
   it('triggers a wave-2 bomb picked up mid-chain and deals additional damage', () => {
     const grid = new HexGrid();
+    // bomb's blast neighbors, pre-set to green stones so wave 2 has something to
+    // damage. Set BEFORE the red path stones below: two of bomb (1,1)'s six
+    // neighbors — (0,1) and (1,2) — are themselves part of the chain path, so
+    // greening must happen first and let the path's setStones call win there,
+    // otherwise the path's own red stones get overwritten back to green and
+    // validateChain rejects the chain on a color mismatch.
+    for (const n of grid.getNeighbors(1, 1)) {
+      grid.set(n.row, n.col, { type: 'stone', color: 'green' });
+    }
     setStones(grid, [
       { row: 0, col: 0, color: 'red' },
       { row: 0, col: 1, color: 'red' },
       { row: 1, col: 2, color: 'red' },
     ]);
     grid.set(1, 1, { type: 'special', tile: 'bomb' });
-    // bomb's blast neighbors, pre-set to green stones so wave 2 has something to damage
-    for (const n of grid.getNeighbors(1, 1)) {
-      grid.set(n.row, n.col, { type: 'stone', color: 'green' });
-    }
     const path: CellCoord[] = [
       { row: 0, col: 0 },
       { row: 0, col: 1 },
