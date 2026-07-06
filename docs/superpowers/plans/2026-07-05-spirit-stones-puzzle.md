@@ -1462,7 +1462,11 @@ describe('resolveTurn', () => {
       { row: 1, col: 1 },
       { row: 1, col: 2 },
     ];
-    const result = resolveTurn(grid, ROSTER, path, mulberry32(1));
+    // Seed 3 (not 1): with this fixture, seed 1's RNG sequence happens to make
+    // bomb A's wave-2 blast also catch a freshly-refilled special tile,
+    // reaching combo depth 3 instead of the depth-2 this test asserts. Seed 3
+    // reliably gives depth 2 — same seed-search situation as the next test.
+    const result = resolveTurn(grid, ROSTER, path, mulberry32(3));
     expect(result.valid).toBe(true);
     expect(result.comboDepth).toBe(2);
     expect(result.damageEvents.some((e) => e.color === 'green')).toBe(true);
