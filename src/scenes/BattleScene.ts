@@ -12,7 +12,7 @@ import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core
 import { resolveTurn } from '../core/resolution';
 import { cellToPixel } from './boardLayout';
 
-export { ORIGIN_X, ORIGIN_Y, CELL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
+export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
 
 const STONE_RADIUS = 22;
 
