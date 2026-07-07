@@ -1441,23 +1441,32 @@ describe('resolveTurn', () => {
 
   it('triggers a wave-2 bomb picked up mid-chain and deals additional damage', () => {
     const grid = new HexGrid();
+    // bomb's blast neighbors, pre-set to green stones so wave 2 has something to
+    // damage. Set BEFORE the red path stones below: two of bomb (1,1)'s six
+    // neighbors — (0,1) and (1,2) — are themselves part of the chain path, so
+    // greening must happen first and let the path's setStones call win there,
+    // otherwise the path's own red stones get overwritten back to green and
+    // validateChain rejects the chain on a color mismatch.
+    for (const n of grid.getNeighbors(1, 1)) {
+      grid.set(n.row, n.col, { type: 'stone', color: 'green' });
+    }
     setStones(grid, [
       { row: 0, col: 0, color: 'red' },
       { row: 0, col: 1, color: 'red' },
       { row: 1, col: 2, color: 'red' },
     ]);
     grid.set(1, 1, { type: 'special', tile: 'bomb' });
-    // bomb's blast neighbors, pre-set to green stones so wave 2 has something to damage
-    for (const n of grid.getNeighbors(1, 1)) {
-      grid.set(n.row, n.col, { type: 'stone', color: 'green' });
-    }
     const path: CellCoord[] = [
       { row: 0, col: 0 },
       { row: 0, col: 1 },
       { row: 1, col: 1 },
       { row: 1, col: 2 },
     ];
-    const result = resolveTurn(grid, ROSTER, path, mulberry32(1));
+    // Seed 3 (not 1): with this fixture, seed 1's RNG sequence happens to make
+    // bomb A's wave-2 blast also catch a freshly-refilled special tile,
+    // reaching combo depth 3 instead of the depth-2 this test asserts. Seed 3
+    // reliably gives depth 2 — same seed-search situation as the next test.
+    const result = resolveTurn(grid, ROSTER, path, mulberry32(3));
     expect(result.valid).toBe(true);
     expect(result.comboDepth).toBe(2);
     expect(result.damageEvents.some((e) => e.color === 'green')).toBe(true);
@@ -1668,14 +1677,42 @@ git commit -m "feat: add wave-based turn resolution with combo depth and bonus-t
 ### Task 9: Phaser Bootstrap & Battle Scene
 
 **Files:**
+- Create: `src/scenes/boardLayout.ts`
 - Create: `src/main.ts`
 - Create: `src/scenes/BattleScene.ts`
 
 **Interfaces:**
 - Consumes: `HexGrid`, `CellCoord`, `ElementColor`, `SpecialTileType`, `getAllCells`, `fillBoard` from `../core/grid`; `mulberry32`, `RandomFn` from `../core/rng`; `ROSTER`, `createMonster`, `applyDamage`, `isDefeated`, `Monster` from `../core/combat`; `resolveTurn` from `../core/resolution`.
-- Produces: `cellToPixel(row: number, col: number): { x: number; y: number }` (exported for e2e test use), the Phaser `BattleScene` class (scene key `'battle'`), and `main.ts` bootstrapping the game with `BattleScene` as its only scene.
+- Produces: `ORIGIN_X`, `ORIGIN_Y`, `CELL_WIDTH`, `ROW_HEIGHT`, `cellToPixel(row: number, col: number): { x: number; y: number }` from `boardLayout.ts` (a Phaser-free module — see Design Decision below), re-exported from `BattleScene.ts` for convenience; the Phaser `BattleScene` class (scene key `'battle'`); and `main.ts` bootstrapping the game with `BattleScene` as its only scene.
 
-- [ ] **Step 1: Write `src/scenes/BattleScene.ts`**
+**Design decision:** `cellToPixel` and its layout constants live in their own file, `boardLayout.ts`, which imports nothing from `phaser`. This matters because Phaser's module touches `window`/`document` as soon as it's imported — fine in a real browser (where Task 10's Playwright test drives an actual page), but fatal if a Node-context test file tries to `import` anything from `BattleScene.ts` directly, since that pulls in Phaser's module-load side effects into plain Node. Task 10's e2e spec imports `cellToPixel` from `./boardLayout` for this reason, not from `./BattleScene`.
+
+- [ ] **Step 1: Write `src/scenes/boardLayout.ts`**
+
+```ts
+// Pixel layout constants for the hex board. Deliberately has no Phaser
+// import — Task 10's Playwright test computes cellToPixel in a plain
+// Node context (to know where to click), and Phaser's module touches
+// `window`/`document` at import time, which would crash outside a
+// browser page. Keeping this math Phaser-free lets both BattleScene
+// (in the browser) and the e2e spec (in Node) share one implementation.
+export const ORIGIN_X = 60;
+export const ORIGIN_Y = 100;
+export const CELL_WIDTH = 56;
+export const ROW_HEIGHT = 48;
+
+// Converts a logical (row, col) cell into the screen position of its
+// center, applying the honeycomb's half-cell-width shift on odd rows.
+export function cellToPixel(row: number, col: number): { x: number; y: number } {
+  const shift = row % 2 === 1 ? CELL_WIDTH / 2 : 0;
+  return {
+    x: ORIGIN_X + col * CELL_WIDTH + shift,
+    y: ORIGIN_Y + row * ROW_HEIGHT,
+  };
+}
+```
+
+- [ ] **Step 2: Write `src/scenes/BattleScene.ts`**
 
 ```ts
 import Phaser from 'phaser';
@@ -1690,14 +1727,10 @@ import {
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn } from '../core/resolution';
+import { cellToPixel } from './boardLayout';
 
-// Pixel layout constants for the hex board. Exported so the Playwright
-// e2e test can compute the same screen coordinates for a known board
-// state instead of duplicating this math.
-export const ORIGIN_X = 60;
-export const ORIGIN_Y = 100;
-export const CELL_WIDTH = 56;
-export const ROW_HEIGHT = 48;
+export { ORIGIN_X, ORIGIN_Y, CELL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
+
 const STONE_RADIUS = 22;
 
 const COLOR_HEX: Record<ElementColor, number> = {
@@ -1717,16 +1750,6 @@ const TILE_LABEL: Record<SpecialTileType, string> = {
   doubleSword: 'SS',
   doubleArrowBow: 'WW',
 };
-
-// Converts a logical (row, col) cell into the screen position of its
-// center, applying the honeycomb's half-cell-width shift on odd rows.
-export function cellToPixel(row: number, col: number): { x: number; y: number } {
-  const shift = row % 2 === 1 ? CELL_WIDTH / 2 : 0;
-  return {
-    x: ORIGIN_X + col * CELL_WIDTH + shift,
-    y: ORIGIN_Y + row * ROW_HEIGHT,
-  };
-}
 
 // The only scene in this prototype: renders the board + HP bar, turns
 // pointer drags into a CellCoord path, and hands each finished drag to
@@ -1870,7 +1893,7 @@ export class BattleScene extends Phaser.Scene {
 }
 ```
 
-- [ ] **Step 2: Write `src/main.ts`**
+- [ ] **Step 3: Write `src/main.ts`**
 
 ```ts
 import Phaser from 'phaser';
@@ -1890,15 +1913,15 @@ const config: Phaser.Types.Core.GameConfig = {
 new Phaser.Game(config);
 ```
 
-- [ ] **Step 3: Run the dev server and manually verify**
+- [ ] **Step 4: Run the dev server and manually verify**
 
 Run: `npm run dev`
 Expected: server starts on `http://localhost:5173`; opening it in a browser shows a hex board of colored circles, an HP bar, and dragging across 3+ same-color adjacent stones clears them and reduces the HP bar.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/main.ts src/scenes/BattleScene.ts
+git add src/scenes/boardLayout.ts src/main.ts src/scenes/BattleScene.ts
 git commit -m "feat: add Phaser battle scene wiring drag input to turn resolution"
 ```
 
@@ -1910,7 +1933,7 @@ git commit -m "feat: add Phaser battle scene wiring drag input to turn resolutio
 - Create: `tests/e2e/battle.spec.ts`
 
 **Interfaces:**
-- Consumes: `HexGrid`, `fillBoard`, `getAllCells`, `ElementColor` from `../../src/core/grid`; `mulberry32` from `../../src/core/rng`; `cellToPixel` from `../../src/scenes/BattleScene`.
+- Consumes: `HexGrid`, `fillBoard`, `getAllCells`, `ElementColor` from `../../src/core/grid`; `mulberry32` from `../../src/core/rng`; `cellToPixel` from `../../src/scenes/boardLayout` (NOT from `BattleScene.ts` — that file imports Phaser, which touches `window` at module-load time and crashes in Playwright's plain Node test process; `boardLayout.ts` is a Phaser-free module created in Task 9 specifically to avoid this).
 - Produces: nothing consumed by later tasks (final task).
 
 - [ ] **Step 1: Write the e2e test**
@@ -1919,7 +1942,7 @@ git commit -m "feat: add Phaser battle scene wiring drag input to turn resolutio
 import { test, expect } from '@playwright/test';
 import { HexGrid, fillBoard, ElementColor, CellCoord } from '../../src/core/grid';
 import { mulberry32 } from '../../src/core/rng';
-import { cellToPixel } from '../../src/scenes/BattleScene';
+import { cellToPixel } from '../../src/scenes/boardLayout';
 
 function findValidChain(grid: HexGrid): CellCoord[] {
   for (const cell of grid.getAllCells()) {
