@@ -4,17 +4,19 @@
 // `window`/`document` at import time, which would crash outside a
 // browser page. Keeping this math Phaser-free lets both BattleScene
 // (in the browser) and the e2e spec (in Node) share one implementation.
-export const ORIGIN_X = 60;
-export const ORIGIN_Y = 100;
-export const CELL_WIDTH = 56;
+export const ORIGIN_X = 40;
+export const ORIGIN_Y = 120;
+export const COL_WIDTH = 56;
 export const ROW_HEIGHT = 48;
 
 // Converts a logical (row, col) cell into the screen position of its
-// center, applying the honeycomb's half-cell-width shift on odd rows.
+// center. Columns render as straight vertical lines (x depends only on
+// col); alternating columns shift down by half a cell so they interlock
+// into a honeycomb, matching the reference screenshot's column stagger.
 export function cellToPixel(row: number, col: number): { x: number; y: number } {
-  const shift = row % 2 === 1 ? CELL_WIDTH / 2 : 0;
+  const shift = col % 2 === 1 ? ROW_HEIGHT / 2 : 0;
   return {
-    x: ORIGIN_X + col * CELL_WIDTH + shift,
-    y: ORIGIN_Y + row * ROW_HEIGHT,
+    x: ORIGIN_X + col * COL_WIDTH,
+    y: ORIGIN_Y + row * ROW_HEIGHT + shift,
   };
 }
