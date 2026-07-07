@@ -144,6 +144,7 @@ export class BattleScene extends Phaser.Scene {
       const { x, y } = cellToPixel(cell.row, cell.col);
       const content = this.grid.get(cell.row, cell.col);
       const graphics = this.add.graphics();
+      this.boardLayer.add(graphics);
       if (content.type === 'stone') {
         graphics.fillStyle(COLOR_HEX[content.color], 1);
         graphics.fillCircle(x, y, STONE_RADIUS);
@@ -159,7 +160,6 @@ export class BattleScene extends Phaser.Scene {
         graphics.fillStyle(0xaa66ff, 1);
         graphics.fillCircle(x, y, STONE_RADIUS);
       }
-      this.boardLayer.add(graphics);
     }
   }
 
