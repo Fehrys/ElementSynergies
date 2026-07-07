@@ -23,15 +23,17 @@ const COLOR_HEX: Record<ElementColor, number> = {
   blue: 0x3498db,
 };
 
-// Placeholder text labels standing in for real icons/art in this
-// vertical-slice prototype.
+// Emoji standing in for real icons/art in this vertical-slice prototype.
+// Dynamite and Double Sword get their own distinct glyph (a dynamite
+// stick, crossed swords) rather than doubled text since good single
+// glyphs exist; Double Arrow Bow uses a gun rather than a doubled bow.
 const TILE_LABEL: Record<SpecialTileType, string> = {
-  bomb: 'B',
-  sword: 'S',
-  bow: 'W',
-  dynamite: 'D',
-  doubleSword: 'SS',
-  doubleArrowBow: 'WW',
+  bomb: '💣',
+  sword: '🗡️',
+  bow: '🏹',
+  dynamite: '🧨',
+  doubleSword: '⚔️',
+  doubleArrowBow: '🔫',
 };
 
 // The only scene in this prototype: renders the board + HP bar, turns
@@ -148,8 +150,8 @@ export class BattleScene extends Phaser.Scene {
       } else if (content.type === 'special') {
         graphics.fillStyle(0x888888, 1);
         graphics.fillCircle(x, y, STONE_RADIUS);
-        const label = this.add.text(x - 8, y - 10, TILE_LABEL[content.tile], {
-          fontSize: '14px',
+        const label = this.add.text(x - 10, y - 11, TILE_LABEL[content.tile], {
+          fontSize: '18px',
           color: '#000000',
         });
         this.boardLayer.add(label);
