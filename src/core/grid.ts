@@ -14,27 +14,27 @@ export interface CellCoord {
   col: number;
 }
 
-export const ROWS = 7;
+export const COLS = 7;
 
-// Honeycomb rows alternate width: even rows are the wide (5-cell) rows,
-// odd rows are the narrow (4-cell), staggered rows.
-export function rowWidth(row: number): number {
-  return row % 2 === 0 ? 5 : 4;
+// Honeycomb columns alternate height: even columns are the tall (5-cell)
+// columns, odd columns are the short (4-cell), staggered columns.
+export function colHeight(col: number): number {
+  return col % 2 === 0 ? 5 : 4;
 }
 
 // True if (row, col) is a real cell on the 32-cell board.
 export function isValidCell(row: number, col: number): boolean {
-  if (row < 0 || row >= ROWS) return false;
-  return col >= 0 && col < rowWidth(row);
+  if (col < 0 || col >= COLS) return false;
+  return row >= 0 && row < colHeight(col);
 }
 
-// Every cell on the board, in row-major order. The canonical source of
+// Every cell on the board, in column-major order. The canonical source of
 // "all 32 cells" — refill.ts, specialTiles.ts, and BattleScene all iterate
 // this instead of re-deriving row/col ranges themselves.
 export function getAllCells(): CellCoord[] {
   const cells: CellCoord[] = [];
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < rowWidth(row); col++) {
+  for (let col = 0; col < COLS; col++) {
+    for (let row = 0; row < colHeight(col); row++) {
       cells.push({ row, col });
     }
   }
@@ -43,29 +43,29 @@ export function getAllCells(): CellCoord[] {
 
 // Axial hex coordinates (q, r). Unlike the offset (row, col) scheme, axial
 // coordinates make "is this a neighbor" and "walk in a straight line"
-// simple constant-offset math regardless of row-width staggering.
+// simple constant-offset math regardless of column-height staggering.
 export interface AxialCoord {
   q: number;
   r: number;
 }
 
-// Convert rendered offset coordinates to axial. r is just the row; q
+// Convert rendered offset coordinates to axial. r is just the col; q
 // removes the stagger offset so that hex adjacency becomes a fixed set
 // of +/-1 deltas (see AXIAL_DIRECTIONS below).
 export function toAxial(row: number, col: number): AxialCoord {
-  return { q: col - Math.floor(row / 2), r: row };
+  return { q: row - Math.floor(col / 2), r: col };
 }
 
 // Inverse of toAxial — converts back to the rendered (row, col) scheme.
 export function toOffset(axial: AxialCoord): CellCoord {
-  const row = axial.r;
-  const col = axial.q + Math.floor(row / 2);
+  const col = axial.r;
+  const row = axial.q + Math.floor(col / 2);
   return { row, col };
 }
 
 /**
  * The 6 hex neighbor directions in axial space, as 3 opposite-direction
- * pairs. Index pair [0,3] has dr=0 (same row) — the "row axis". Pairs
+ * pairs. Index pair [0,3] has dr=0 (same column) — the "column axis". Pairs
  * [1,4] and [2,5] are the "diagonal axes" used by sword/double sword in
  * specialTiles.ts. Dynamite's "column" is a separate, simpler concept
  * (the raw offset `col` field — see refill.ts), not one of these axes.
@@ -79,10 +79,10 @@ export const AXIAL_DIRECTIONS: AxialCoord[] = [
   { q: 0, r: 1 },
 ];
 
-// Which AXIAL_DIRECTIONS index pair is the same-row axis vs. the two
+// Which AXIAL_DIRECTIONS index pair is the same-column axis vs. the two
 // diagonal axes — named here once so specialTiles.ts doesn't hardcode
 // magic indices when picking sword's line direction.
-export const ROW_AXIS_DIRECTION_INDICES: [number, number] = [0, 3];
+export const COL_AXIS_DIRECTION_INDICES: [number, number] = [0, 3];
 export const DIAGONAL_AXIS_DIRECTION_INDICES: [number, number][] = [
   [1, 4],
   [2, 5],

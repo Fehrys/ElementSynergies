@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ROWS,
-  rowWidth,
+  COLS,
+  colHeight,
   isValidCell,
   getAllCells,
   getNeighbors,
@@ -12,45 +12,46 @@ import {
 import { mulberry32 } from '../../src/core/rng';
 
 describe('grid dimensions', () => {
-  it('has 7 rows alternating width 5/4, 32 cells total', () => {
-    expect(ROWS).toBe(7);
-    expect(rowWidth(0)).toBe(5);
-    expect(rowWidth(1)).toBe(4);
+  it('has 7 columns alternating height 5/4, 32 cells total', () => {
+    expect(COLS).toBe(7);
+    expect(colHeight(0)).toBe(5);
+    expect(colHeight(1)).toBe(4);
     expect(getAllCells()).toHaveLength(32);
   });
 
   it('rejects out-of-range cells', () => {
-    expect(isValidCell(0, 5)).toBe(false);
-    expect(isValidCell(1, 4)).toBe(false);
+    expect(isValidCell(5, 0)).toBe(false);
+    expect(isValidCell(4, 1)).toBe(false);
     expect(isValidCell(-1, 0)).toBe(false);
+    expect(isValidCell(0, 7)).toBe(false);
   });
 });
 
 describe('getNeighbors', () => {
   it('returns 4 neighbors for an edge cell', () => {
-    const neighbors = getNeighbors(0, 2);
+    const neighbors = getNeighbors(2, 0);
     expect(neighbors).toHaveLength(4);
     expect(neighbors).toEqual(
       expect.arrayContaining([
-        { row: 0, col: 1 },
-        { row: 0, col: 3 },
+        { row: 3, col: 0 },
+        { row: 1, col: 0 },
         { row: 1, col: 1 },
-        { row: 1, col: 2 },
+        { row: 2, col: 1 },
       ])
     );
   });
 
   it('returns 6 neighbors for an interior cell', () => {
-    const neighbors = getNeighbors(3, 1);
+    const neighbors = getNeighbors(2, 2);
     expect(neighbors).toHaveLength(6);
     expect(neighbors).toEqual(
       expect.arrayContaining([
-        { row: 3, col: 0 },
         { row: 3, col: 2 },
         { row: 2, col: 1 },
-        { row: 2, col: 2 },
-        { row: 4, col: 1 },
-        { row: 4, col: 2 },
+        { row: 1, col: 1 },
+        { row: 1, col: 2 },
+        { row: 1, col: 3 },
+        { row: 2, col: 3 },
       ])
     );
   });
