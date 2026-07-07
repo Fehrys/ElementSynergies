@@ -135,7 +135,7 @@ describe('validateChain', () => {
     expect(result.reason).toMatch(/color mismatch/);
   });
 
-  it('splits a portal-bridged chain into two independently-scored sub-chains', () => {
+  it('rejects a portal chain where a side falls short of minimum length', () => {
     const grid = new HexGrid();
     setStones(grid, [
       { row: 0, col: 0, color: 'red' },
@@ -153,27 +153,45 @@ describe('validateChain', () => {
       { row: 1, col: 3 },
     ]);
     // red side only has 2 stones (fails min 3); blue side has 2 (also fails via this path)
-    // so this exact path is invalid — covered fully by the next, passing case.
+    // so this exact path is invalid — covered fully by the next, genuinely
+    // portal-bridged passing case.
     expect(result.valid).toBe(false);
   });
 
-  it('accepts a portal chain where both sides reach minimum length', () => {
+  it('splits a portal-bridged chain into two independently-scored sub-chains', () => {
     const grid = new HexGrid();
     setStones(grid, [
+      { row: 1, col: 0, color: 'red' },
       { row: 0, col: 0, color: 'red' },
       { row: 0, col: 1, color: 'red' },
-      { row: 1, col: 1, color: 'red' },
-      { row: 1, col: 3, color: 'blue' },
       { row: 1, col: 2, color: 'blue' },
-      { row: 2, col: 2, color: 'blue' },
+      { row: 1, col: 3, color: 'blue' },
+      { row: 2, col: 3, color: 'blue' },
     ]);
     grid.set(0, 2, { type: 'portal' });
     const result = validateChain(grid, [
-      { row: 1, col: 1 },
-      { row: 0, col: 1 },
+      { row: 1, col: 0 },
       { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
     ]);
     expect(result.valid).toBe(true);
-    expect(result.subChains[0].stoneCells).toHaveLength(3);
+    expect(result.subChains).toHaveLength(2);
+
+    const redSubChain = result.subChains.find((sub) => sub.color === 'red');
+    const blueSubChain = result.subChains.find((sub) => sub.color === 'blue');
+    expect(redSubChain).toBeDefined();
+    expect(blueSubChain).toBeDefined();
+
+    const redCells = new Set(redSubChain!.stoneCells.map((c) => `${c.row},${c.col}`));
+    expect(redCells).toEqual(new Set(['1,0', '0,0', '0,1']));
+
+    const blueCells = new Set(blueSubChain!.stoneCells.map((c) => `${c.row},${c.col}`));
+    expect(blueCells).toEqual(new Set(['1,2', '1,3', '2,3']));
+
+    expect(result.portalCells).toEqual([{ row: 0, col: 2 }]);
   });
 });

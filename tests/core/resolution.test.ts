@@ -79,6 +79,34 @@ describe('resolveTurn', () => {
     expect(result.totalDamage).toBeGreaterThan(50 * 3);
   });
 
+  it('produces two independent damage events for a portal-bridged chain and clears the portal', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'red' },
+      { row: 0, col: 0, color: 'red' },
+      { row: 0, col: 1, color: 'red' },
+      { row: 1, col: 2, color: 'blue' },
+      { row: 1, col: 3, color: 'blue' },
+      { row: 2, col: 3, color: 'blue' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    const path: CellCoord[] = [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+    ];
+    const result = resolveTurn(grid, ROSTER, path, mulberry32(1));
+    expect(result.valid).toBe(true);
+    expect(result.damageEvents).toContainEqual({ color: 'red', count: 3, damage: 150 });
+    expect(result.damageEvents).toContainEqual({ color: 'blue', count: 3, damage: 150 });
+    // the portal cell itself was cleared and refilled to something else
+    expect(grid.get(0, 2).type).not.toBe('portal');
+  });
+
   it('spawns exactly one improved tile once combo depth reaches 3', () => {
     // Build a deliberate 3-wave chain reaction: chain picks up bomb A;
     // bomb A's blast hits bomb B; bomb B's blast hits a plain stone.
