@@ -28,6 +28,25 @@ function findValidChain(grid: HexGrid): CellCoord[] {
   throw new Error('no valid 3-chain found for this seed');
 }
 
+// Given an already-found valid chain, returns a stone adjacent to its
+// last cell with a *different* color than the chain's own — used to
+// exercise "releasing after dragging onto an invalid cell still scores
+// the valid prefix" without cancelling the whole chain.
+function findDifferentColorNeighbor(grid: HexGrid, chain: CellCoord[]): CellCoord {
+  const first = grid.get(chain[0].row, chain[0].col);
+  if (first.type !== 'stone') throw new Error('chain must start on a stone');
+  const chainColor = first.color;
+  const last = chain[chain.length - 1];
+  const visited = new Set(chain.map((c) => `${c.row},${c.col}`));
+  const extra = grid.getNeighbors(last.row, last.col).find((n) => {
+    if (visited.has(`${n.row},${n.col}`)) return false;
+    const c = grid.get(n.row, n.col);
+    return c.type === 'stone' && c.color !== chainColor;
+  });
+  if (!extra) throw new Error('no differently-colored neighbor found for this seed');
+  return extra;
+}
+
 test('dragging a valid same-color chain damages the monster', async ({ page }) => {
   await page.goto('/?seed=1');
   await page.waitForSelector('[data-scene="battle"]');
@@ -68,4 +87,49 @@ test('a drag shorter than 3 cells does not damage the monster', async ({ page })
 
   const endHp = await page.getAttribute('body', 'data-monster-hp');
   expect(Number(endHp)).toBe(Number(startHp));
+});
+
+test('dragging a valid chain but backtracking before release does not damage the monster', async ({ page }) => {
+  await page.goto('/?seed=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  const grid = new HexGrid();
+  fillBoard(grid, mulberry32(1));
+  const chain = findValidChain(grid);
+  const points = chain.map((c) => cellToPixel(c.row, c.col));
+
+  const startHp = await page.getAttribute('body', 'data-monster-hp');
+
+  await page.mouse.move(points[0].x, points[0].y);
+  await page.mouse.down();
+  await page.mouse.move(points[1].x, points[1].y);
+  await page.mouse.move(points[2].x, points[2].y);
+  await page.mouse.move(points[1].x, points[1].y); // backtrack onto the 2nd tile
+  await page.mouse.up();
+
+  const endHp = await page.getAttribute('body', 'data-monster-hp');
+  expect(Number(endHp)).toBe(Number(startHp));
+});
+
+test('releasing after dragging onto a different-color tile still damages the monster for the valid prefix', async ({ page }) => {
+  await page.goto('/?seed=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  const grid = new HexGrid();
+  fillBoard(grid, mulberry32(1));
+  const chain = findValidChain(grid);
+  const extra = findDifferentColorNeighbor(grid, chain);
+  const points = [...chain, extra].map((c) => cellToPixel(c.row, c.col));
+
+  const startHp = await page.getAttribute('body', 'data-monster-hp');
+
+  await page.mouse.move(points[0].x, points[0].y);
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    await page.mouse.move(p.x, p.y);
+  }
+  await page.mouse.up();
+
+  const endHp = await page.getAttribute('body', 'data-monster-hp');
+  expect(Number(endHp)).toBeLessThan(Number(startHp));
 });

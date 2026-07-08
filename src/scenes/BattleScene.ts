@@ -7,6 +7,7 @@ import {
   getAllCells,
   fillBoard,
 } from '../core/grid';
+import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn } from '../core/resolution';
@@ -52,6 +53,7 @@ export class BattleScene extends Phaser.Scene {
   private boardLayer!: Phaser.GameObjects.Container;
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
+  private traceGraphics!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('battle');
@@ -69,6 +71,7 @@ export class BattleScene extends Phaser.Scene {
     this.monster = createMonster('Frost Yeti', 1000);
 
     this.boardLayer = this.add.container(0, 0);
+    this.traceGraphics = this.add.graphics();
     this.hpText = this.add.text(20, 20, '', { fontSize: '20px', color: '#ffffff' });
     this.hpBar = this.add.graphics();
 
@@ -102,19 +105,37 @@ export class BattleScene extends Phaser.Scene {
     if (!cell) return;
     this.dragging = true;
     this.path = [cell];
+    this.drawTraceLine();
   }
 
-  // Extends the in-progress path whenever the pointer enters a new,
-  // not-yet-visited cell. Full legality (adjacency/color/min-length) is
-  // deferred to validateChain() at release time, not checked live here.
+  // Extends the in-progress path only when canExtendChain accepts the
+  // new cell — anything it rejects is simply ignored, so a chain that's
+  // valid so far can never be broken by a bad step later in the drag.
+  // Dragging back onto the second-to-last cell backtracks one step
+  // instead of being legality-checked. Only min-length is still
+  // deferred to release, via validateChain (a single-step check can't
+  // know the eventual chain's total length).
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.dragging) return;
     const cell = this.cellAt(pointer.x, pointer.y);
     if (!cell) return;
     const last = this.path[this.path.length - 1];
     if (last.row === cell.row && last.col === cell.col) return;
+
+    if (this.path.length >= 2) {
+      const secondLast = this.path[this.path.length - 2];
+      if (secondLast.row === cell.row && secondLast.col === cell.col) {
+        this.path.pop();
+        this.drawTraceLine();
+        return;
+      }
+    }
+
     if (this.path.some((c) => c.row === cell.row && c.col === cell.col)) return;
+    if (!canExtendChain(this.grid, this.path, cell)) return;
+
     this.path.push(cell);
+    this.drawTraceLine();
   }
 
   // On release, hands the whole dragged path to the core engine, applies
@@ -125,6 +146,7 @@ export class BattleScene extends Phaser.Scene {
 
     const result = resolveTurn(this.grid, ROSTER, this.path, this.rng);
     this.path = [];
+    this.traceGraphics.clear();
 
     if (result.valid) {
       this.monster = applyDamage(this.monster, result.totalDamage);
@@ -170,6 +192,24 @@ export class BattleScene extends Phaser.Scene {
         this.boardLayer.add(label);
       }
     }
+  }
+
+  // Draws the white connecting line for the current in-progress drag —
+  // straight cell-to-cell segments only. Redrawn from scratch on every
+  // accepted path change, matching drawBoard()'s "simple full redraw"
+  // convention.
+  private drawTraceLine(): void {
+    this.traceGraphics.clear();
+    if (this.path.length < 2) return;
+    this.traceGraphics.lineStyle(4, 0xffffff, 1);
+    this.traceGraphics.beginPath();
+    const first = cellToPixel(this.path[0].row, this.path[0].col);
+    this.traceGraphics.moveTo(first.x, first.y);
+    for (let i = 1; i < this.path.length; i++) {
+      const p = cellToPixel(this.path[i].row, this.path[i].col);
+      this.traceGraphics.lineTo(p.x, p.y);
+    }
+    this.traceGraphics.strokePath();
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM
