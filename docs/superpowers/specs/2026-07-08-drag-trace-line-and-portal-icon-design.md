@@ -5,12 +5,12 @@
 
 ## Goal
 
-Two UX-feedback fixes from `bugs.txt`:
+Two UX-feedback fixes from `bugs.txt`, of very different sizes:
 
-1. Dragging a chain gives the player no visual feedback connecting the tiles they've touched — there's no indication of what path is currently being traced, and no way to visually correct a wrong turn without releasing.
-2. The portal tile (`bugs.txt`'s "rainbow tile") renders as a plain purple circle with no icon at all, unlike every special tile, which already got a distinguishing emoji.
+1. **Drag trace line (the larger piece of this spec):** dragging a chain gives the player no visual feedback connecting the tiles they've touched, and no way to correct a wrong turn without releasing. This is not just a rendering addition — it requires three coordinated changes: (a) a new live per-step legality check during the drag (today, nothing is validated until release), (b) a white connecting line kept in sync with that live validation, and (c) backtrack-to-shrink support (dragging back onto the second-to-last cell removes the last cell and its line segment) — a genuine interaction-logic feature in its own right, not a visual afterthought, since it changes how `BattleScene` tracks and mutates the in-progress path.
+2. **Portal icon (small):** the portal tile (`bugs.txt`'s "rainbow tile") renders as a plain purple circle with no icon at all, unlike every special tile, which already got a distinguishing emoji. A one-line rendering addition, no interaction-logic changes.
 
-These are unrelated subsystems (drag interaction/rendering vs. a single tile's icon) but both are small, same-session visual-feedback fixes, so they're specified and planned together, following the precedent set by the board-layout-fixes spec.
+These are unrelated subsystems (drag interaction/rendering vs. a single tile's icon) of very different scope, but both are same-session visual-feedback fixes, so they're specified and planned together, following the precedent set by the board-layout-fixes spec. The bulk of this spec (and the implementation effort) is Part 1.
 
 ## Part 1: Drag Trace Line
 
