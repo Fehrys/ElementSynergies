@@ -144,6 +144,17 @@ export class BattleScene extends Phaser.Scene {
     if (!this.dragging) return;
     this.dragging = false;
 
+    // A portal can never legally be the last cell of a chain
+    // (validateChain enforces this) — if the drag ended on one, drop it
+    // before submitting rather than let a single trailing portal cancel
+    // an otherwise-valid chain that was accumulated before it.
+    if (this.path.length > 0) {
+      const last = this.path[this.path.length - 1];
+      if (this.grid.get(last.row, last.col).type === 'portal') {
+        this.path.pop();
+      }
+    }
+
     const result = resolveTurn(this.grid, ROSTER, this.path, this.rng);
     this.path = [];
     this.traceGraphics.clear();

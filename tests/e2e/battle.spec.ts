@@ -47,6 +47,20 @@ function findDifferentColorNeighbor(grid: HexGrid, chain: CellCoord[]): CellCoor
   return extra;
 }
 
+// Given an already-found valid chain, returns a portal cell adjacent to
+// its last cell — used to exercise "releasing with a trailing portal
+// still scores the valid prefix, rather than being cancelled outright."
+function findAdjacentPortal(grid: HexGrid, chain: CellCoord[]): CellCoord {
+  const last = chain[chain.length - 1];
+  const visited = new Set(chain.map((c) => `${c.row},${c.col}`));
+  const portal = grid.getNeighbors(last.row, last.col).find((n) => {
+    if (visited.has(`${n.row},${n.col}`)) return false;
+    return grid.get(n.row, n.col).type === 'portal';
+  });
+  if (!portal) throw new Error('no adjacent portal found for this seed');
+  return portal;
+}
+
 test('dragging a valid same-color chain damages the monster', async ({ page }) => {
   await page.goto('/?seed=1');
   await page.waitForSelector('[data-scene="battle"]');
@@ -120,6 +134,29 @@ test('releasing after dragging onto a different-color tile still damages the mon
   const chain = findValidChain(grid);
   const extra = findDifferentColorNeighbor(grid, chain);
   const points = [...chain, extra].map((c) => cellToPixel(c.row, c.col));
+
+  const startHp = await page.getAttribute('body', 'data-monster-hp');
+
+  await page.mouse.move(points[0].x, points[0].y);
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    await page.mouse.move(p.x, p.y);
+  }
+  await page.mouse.up();
+
+  const endHp = await page.getAttribute('body', 'data-monster-hp');
+  expect(Number(endHp)).toBeLessThan(Number(startHp));
+});
+
+test('releasing with a trailing portal still damages the monster for the valid prefix', async ({ page }) => {
+  await page.goto('/?seed=2');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  const grid = new HexGrid();
+  fillBoard(grid, mulberry32(2));
+  const chain = findValidChain(grid);
+  const portal = findAdjacentPortal(grid, chain);
+  const points = [...chain, portal].map((c) => cellToPixel(c.row, c.col));
 
   const startHp = await page.getAttribute('body', 'data-monster-hp');
 
