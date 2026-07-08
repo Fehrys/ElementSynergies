@@ -36,6 +36,10 @@ const TILE_LABEL: Record<SpecialTileType, string> = {
   doubleArrowBow: '🔫',
 };
 
+// The portal's own icon — a rainbow bridge between colors, distinct
+// from all six special-tile emoji above.
+const PORTAL_LABEL = '🌈';
+
 // The only scene in this prototype: renders the board + HP bar, turns
 // pointer drags into a CellCoord path, and hands each finished drag to
 // resolveTurn() — all puzzle/combat logic lives in src/core, not here.
@@ -159,6 +163,11 @@ export class BattleScene extends Phaser.Scene {
       } else if (content.type === 'portal') {
         graphics.fillStyle(0xaa66ff, 1);
         graphics.fillCircle(x, y, STONE_RADIUS);
+        const label = this.add.text(x - 10, y - 11, PORTAL_LABEL, {
+          fontSize: '18px',
+          color: '#000000',
+        });
+        this.boardLayer.add(label);
       }
     }
   }
