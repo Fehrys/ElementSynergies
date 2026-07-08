@@ -34,7 +34,9 @@ A single white line, at least 4px thick, connecting consecutive cell centers (`c
 
 ### Architecture
 
-The live per-step check needs the exact same color/special/portal legality rules as `validateChain`, minus two things that only make sense for a *complete* path: the minimum-length/segment-splitting logic, and the "portal must be immediately followed by a stone" lookahead (a portal can legally be the current *last* cell mid-drag; that lookahead is still enforced, unchanged, by `validateChain` at release).
+The live per-step check needs the exact same color/special/portal legality rules as `validateChain`, minus the one thing that only makes sense for a *complete* path: the minimum-length/segment-splitting logic (irrelevant to whether a single extension is legal — only to how the eventual full path gets scored).
+
+**Correction from the original draft of this section:** the "portal must be immediately followed by a stone" rule is *not* deferred to release — it's enforced live too. If it weren't, a player could drag `portal → (special tile)` — the trace line would draw the whole way, looking perfectly valid — and only discover at release that `validateChain` rejects the *entire* chain, because the cell right after a portal must specifically be a stone, not a special tile. That's exactly the kind of release-time surprise-cancellation the "release behavior" rule above exists to eliminate for color mismatches; the same guarantee needs to hold for this rule too. So: whenever the path's current last cell is a portal, the only legal next candidate is a stone (any color — it becomes the new deciding color, same as `validateChain`'s bridging behavior). This is checked before the general color/special/portal rule below, not as a special case of it.
 
 New export in `src/core/chain.ts`:
 
