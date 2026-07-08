@@ -128,3 +128,64 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
   const portalCells = portalIndex === -1 ? [] : [path[portalIndex]];
   return { valid: true, subChains, portalCells };
 }
+
+// Replays a path (assumed already legal so far) to recover the state a
+// live per-step check needs: the color decided so far (null if none
+// yet) and whether the path's one allowed portal has already been
+// used. Mirrors validateChain's own color/portal bookkeeping so the
+// rule lives in one place; canExtendChain is the only other consumer.
+function replayState(grid: HexGrid, path: CellCoord[]): { activeColor: ElementColor | null; portalUsed: boolean } {
+  let activeColor: ElementColor | null = null;
+  let portalUsed = false;
+  let awaitingPortalReset = false;
+  for (const cell of path) {
+    const content = grid.get(cell.row, cell.col);
+    if (content.type === 'stone') {
+      if (activeColor === null || awaitingPortalReset) {
+        activeColor = content.color;
+        awaitingPortalReset = false;
+      }
+    } else if (content.type === 'portal') {
+      portalUsed = true;
+      awaitingPortalReset = true;
+    }
+  }
+  return { activeColor, portalUsed };
+}
+
+// Whether `candidate` may legally extend `path` during an in-progress
+// drag — the same color/special/portal rules validateChain enforces
+// for a completed path, minus the minimum-length/segment-splitting
+// concerns (irrelevant to a single step). Assumes `path` is non-empty
+// and already legal so far. Used by BattleScene to decide, live,
+// whether a newly touched cell extends the current drag or is ignored.
+export function canExtendChain(grid: HexGrid, path: CellCoord[], candidate: CellCoord): boolean {
+  if (path.some((cell) => sameCell(cell, candidate))) return false;
+
+  const last = path[path.length - 1];
+  if (!isAdjacent(grid, last, candidate)) return false;
+
+  const lastContent = grid.get(last.row, last.col);
+  const content = grid.get(candidate.row, candidate.col);
+
+  // A portal must be immediately followed by a stone (matches
+  // validateChain's release-time lookahead) — enforcing it live means a
+  // path that passes every canExtendChain check can never be rejected
+  // at release for this reason.
+  if (lastContent.type === 'portal') {
+    return content.type === 'stone';
+  }
+
+  if (content.type === 'stone') {
+    const { activeColor } = replayState(grid, path);
+    return activeColor === null || content.color === activeColor;
+  }
+  if (content.type === 'special') {
+    return true;
+  }
+  if (content.type === 'portal') {
+    const { portalUsed } = replayState(grid, path);
+    return !portalUsed;
+  }
+  return false;
+}

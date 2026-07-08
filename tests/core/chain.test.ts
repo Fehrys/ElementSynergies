@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HexGrid } from '../../src/core/grid';
-import { validateChain } from '../../src/core/chain';
+import { validateChain, canExtendChain } from '../../src/core/chain';
 
 function setStones(grid: HexGrid, cells: { row: number; col: number; color: 'red' | 'green' | 'yellow' | 'blue' }[]) {
   for (const cell of cells) {
@@ -265,5 +265,104 @@ describe('validateChain', () => {
     ]);
     expect(result.valid).toBe(false);
     expect(result.reason).toMatch(/color mismatch/);
+  });
+});
+
+describe('canExtendChain', () => {
+  it('allows extending with a matching stone', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 1, color: 'blue' },
+      { row: 1, col: 1, color: 'blue' },
+    ]);
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(true);
+  });
+
+  it('rejects a mismatched stone once a color is locked', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 1, color: 'blue' },
+      { row: 1, col: 1, color: 'red' },
+    ]);
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(false);
+  });
+
+  it('always allows a special tile regardless of established color', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 1, color: 'blue' },
+    ]);
+    grid.set(1, 1, { type: 'special', tile: 'bomb' });
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(true);
+  });
+
+  it('allows extending onto a portal when none used yet', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 1, color: 'blue' },
+    ]);
+    grid.set(1, 1, { type: 'portal' });
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(true);
+  });
+
+  it('rejects a second portal', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'portal' });
+    setStones(grid, [{ row: 0, col: 1, color: 'blue' }]);
+    grid.set(1, 1, { type: 'portal' });
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(false);
+  });
+
+  it('requires the cell right after a portal to be a stone', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'portal' });
+    grid.set(0, 1, { type: 'special', tile: 'sword' });
+    const path = [{ row: 0, col: 0 }];
+    expect(canExtendChain(grid, path, { row: 0, col: 1 })).toBe(false);
+  });
+
+  it('allows any stone color right after a portal', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'portal' });
+    setStones(grid, [{ row: 0, col: 1, color: 'red' }]);
+    const path = [{ row: 0, col: 0 }];
+    expect(canExtendChain(grid, path, { row: 0, col: 1 })).toBe(true);
+  });
+
+  it('rejects a non-adjacent cell', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 3, color: 'blue' },
+    ]);
+    const path = [{ row: 0, col: 0 }];
+    expect(canExtendChain(grid, path, { row: 0, col: 3 })).toBe(false);
+  });
+
+  it('rejects revisiting a cell already in the path', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 0, col: 0, color: 'blue' },
+      { row: 0, col: 1, color: 'blue' },
+    ]);
+    const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
+    expect(canExtendChain(grid, path, { row: 0, col: 0 })).toBe(false);
+  });
+
+  it('allows extending from a leading special tile onto the first stone', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'special', tile: 'sword' });
+    setStones(grid, [{ row: 0, col: 1, color: 'blue' }]);
+    const path = [{ row: 0, col: 0 }];
+    expect(canExtendChain(grid, path, { row: 0, col: 1 })).toBe(true);
   });
 });
