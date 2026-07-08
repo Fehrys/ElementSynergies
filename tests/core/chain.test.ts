@@ -82,7 +82,7 @@ describe('validateChain', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('rejects when a special tile pickup leaves fewer than 3 stones', () => {
+  it('counts a special tile pickup toward the minimum chain length', () => {
     const grid = new HexGrid();
     setStones(grid, [
       { row: 0, col: 0, color: 'red' },
@@ -94,8 +94,11 @@ describe('validateChain', () => {
       { row: 0, col: 1 },
       { row: 1, col: 1 },
     ]);
-    expect(result.valid).toBe(false);
-    expect(result.reason).toMatch(/minimum/);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(1);
+    expect(result.subChains[0].color).toBe('red');
+    expect(result.subChains[0].stoneCells).toHaveLength(2);
+    expect(result.subChains[0].specialTileCells).toEqual([{ row: 1, col: 1 }]);
   });
 
   it('collects a colorless special tile mid-chain without extending stoneCells', () => {
@@ -193,5 +196,74 @@ describe('validateChain', () => {
     expect(blueCells).toEqual(new Set(['1,2', '1,3', '2,3']));
 
     expect(result.portalCells).toEqual([{ row: 0, col: 2 }]);
+  });
+
+  it('allows a chain to start on a special tile, with color decided by the first stone', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'special', tile: 'sword' });
+    setStones(grid, [
+      { row: 0, col: 1, color: 'blue' },
+      { row: 1, col: 1, color: 'blue' },
+    ]);
+    const result = validateChain(grid, [
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 1 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(1);
+    expect(result.subChains[0].color).toBe('blue');
+    expect(result.subChains[0].stoneCells).toHaveLength(2);
+    expect(result.subChains[0].specialTileCells).toEqual([{ row: 0, col: 0 }]);
+  });
+
+  it('allows a chain to start on a portal, counting it toward the minimum length like a special tile', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'portal' });
+    setStones(grid, [
+      { row: 0, col: 1, color: 'blue' },
+      { row: 1, col: 1, color: 'blue' },
+    ]);
+    const result = validateChain(grid, [
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 1 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(1);
+    expect(result.subChains[0].color).toBe('blue');
+    expect(result.subChains[0].stoneCells).toHaveLength(2);
+    expect(result.subChains[0].specialTileCells).toEqual([{ row: 0, col: 0 }]);
+    expect(result.portalCells).toEqual([{ row: 0, col: 0 }]);
+  });
+
+  it('rejects a chain made entirely of uncolored tiles with no stone at all', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'special', tile: 'sword' });
+    grid.set(0, 1, { type: 'special', tile: 'bomb' });
+    grid.set(1, 1, { type: 'special', tile: 'bow' });
+    const result = validateChain(grid, [
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 1 },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/no colored stone/);
+  });
+
+  it('rejects a chain starting on a special tile whose stones mismatch', () => {
+    const grid = new HexGrid();
+    grid.set(0, 0, { type: 'special', tile: 'sword' });
+    setStones(grid, [
+      { row: 0, col: 1, color: 'blue' },
+      { row: 1, col: 1, color: 'red' },
+    ]);
+    const result = validateChain(grid, [
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 1 },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/color mismatch/);
   });
 });

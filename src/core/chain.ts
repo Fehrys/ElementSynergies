@@ -54,23 +54,30 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
     if (!isAdjacent(grid, path[i - 1], path[i])) return invalid('path is not contiguous');
   }
 
-  // The chain's color is whatever the drag started on; a drag must start
-  // on a stone (special tiles/portal can only be picked up mid-drag).
-  const first = grid.get(path[0].row, path[0].col);
-  if (first.type !== 'stone') return invalid('path must start on a stone');
-
-  let activeColor: ElementColor = first.color;
+  // Walk the whole path from the start, deciding the active color from
+  // whichever stone comes first. A chain may start on a stone (color
+  // decided immediately) or on an uncolored tile — a special tile or a
+  // portal — in which case the color stays undetermined until the first
+  // stone is reached, same rule either way.
+  const segments: { color: ElementColor; start: number; end: number }[] = [];
+  let activeColor: ElementColor | null = null;
+  let segmentStart = 0;
   let portalIndex = -1;
+  // True only when the path's single portal led the chain (no color had
+  // been decided yet when it was reached) — in that case it's a colorless
+  // passthrough like a special tile, not a bridge, and counts toward the
+  // segment's minimum length. A portal that bridges an already-decided
+  // color into a new one stays excluded from both sides' counts, as today.
+  let portalCountsTowardLength = false;
 
-  // Walk the rest of the path enforcing the pickup rules:
-  // - matching-color stones extend the chain
-  // - special tiles are colorless and always allowed, without changing color
-  // - a portal (at most one) switches the active color to whatever follows it
-  // - anything else (wrong color, empty cell) invalidates the whole path
-  for (let i = 1; i < path.length; i++) {
+  for (let i = 0; i < path.length; i++) {
     const content = grid.get(path[i].row, path[i].col);
     if (content.type === 'stone') {
-      if (content.color !== activeColor) return invalid(`color mismatch at index ${i}`);
+      if (activeColor === null) {
+        activeColor = content.color;
+      } else if (content.color !== activeColor) {
+        return invalid(`color mismatch at index ${i}`);
+      }
     } else if (content.type === 'special') {
       continue;
     } else if (content.type === 'portal') {
@@ -80,29 +87,27 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
       const nextContent = grid.get(next.row, next.col);
       if (nextContent.type !== 'stone') return invalid('cell after portal must be a stone');
       portalIndex = i;
+      if (activeColor === null) {
+        portalCountsTowardLength = true;
+      } else {
+        segments.push({ color: activeColor, start: segmentStart, end: i });
+        segmentStart = i;
+      }
       activeColor = nextContent.color;
     } else {
       return invalid(`path touches empty cell at index ${i}`);
     }
   }
 
-  // Split the path into 1 segment (no portal) or 2 segments (portal
-  // present), each spanning from its start to the portal (inclusive) and
-  // from the portal (inclusive) onward — the portal cell is shared by
-  // both segments, matching "portal counts toward both" in the spec.
-  const segments: { color: ElementColor; start: number; end: number }[] = [];
-  if (portalIndex === -1) {
-    segments.push({ color: first.color, start: 0, end: path.length - 1 });
-  } else {
-    const afterPortal = grid.get(path[portalIndex + 1].row, path[portalIndex + 1].col);
-    if (afterPortal.type !== 'stone') return invalid('cell after portal must be a stone');
-    segments.push({ color: first.color, start: 0, end: portalIndex });
-    segments.push({ color: afterPortal.color, start: portalIndex, end: path.length - 1 });
-  }
+  if (activeColor === null) return invalid('chain contains no colored stone');
+
+  segments.push({ color: activeColor, start: segmentStart, end: path.length - 1 });
 
   // Build a SubChain per segment, but only keep segments that reach the
   // minimum length — a portal side that falls short simply contributes
   // no sub-chain (design decision: it doesn't invalidate the other side).
+  // Special tiles (and a leading, non-bridging portal) count toward the
+  // minimum alongside stones; a bridging portal does not.
   const subChains: SubChain[] = [];
   for (const segment of segments) {
     const stoneCells: CellCoord[] = [];
@@ -111,8 +116,9 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
       const content = grid.get(path[i].row, path[i].col);
       if (content.type === 'stone') stoneCells.push(path[i]);
       else if (content.type === 'special') specialTileCells.push(path[i]);
+      else if (content.type === 'portal' && portalCountsTowardLength) specialTileCells.push(path[i]);
     }
-    if (stoneCells.length >= MIN_CHAIN_LENGTH) {
+    if (stoneCells.length + specialTileCells.length >= MIN_CHAIN_LENGTH) {
       subChains.push({ color: segment.color, stoneCells, specialTileCells });
     }
   }
