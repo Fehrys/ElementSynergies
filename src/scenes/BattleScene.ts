@@ -10,7 +10,7 @@ import {
 import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
-import { resolveTurn } from '../core/resolution';
+import { resolveTurn, ResolutionResult } from '../core/resolution';
 import { cellToPixel } from './boardLayout';
 
 export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
@@ -41,6 +41,19 @@ const TILE_LABEL: Record<SpecialTileType, string> = {
 // from all six special-tile emoji above.
 const PORTAL_LABEL = '🌈';
 
+// Test-only surface for Playwright, active only behind `?debug=1` — never
+// touched by real gameplay code. See
+// docs/superpowers/specs/2026-07-09-playwright-debug-mode-design.md.
+export interface DebugApi {
+  lastTurn: ResolutionResult | null;
+}
+
+declare global {
+  interface Window {
+    __debug?: DebugApi;
+  }
+}
+
 // The only scene in this prototype: renders the board + HP bar, turns
 // pointer drags into a CellCoord path, and hands each finished drag to
 // resolveTurn() — all puzzle/combat logic lives in src/core, not here.
@@ -63,8 +76,13 @@ export class BattleScene extends Phaser.Scene {
     // A `?seed=N` query param swaps in a deterministic RNG so e2e tests
     // (and manual debugging) can reproduce an exact board; otherwise use
     // real randomness.
-    const seedParam = new URLSearchParams(window.location.search).get('seed');
+    const params = new URLSearchParams(window.location.search);
+    const seedParam = params.get('seed');
     this.rng = seedParam ? mulberry32(Number(seedParam)) : Math.random;
+
+    if (params.get('debug') === '1') {
+      window.__debug = { lastTurn: null };
+    }
 
     this.grid = new HexGrid();
     fillBoard(this.grid, this.rng);
@@ -158,6 +176,10 @@ export class BattleScene extends Phaser.Scene {
     const result = resolveTurn(this.grid, ROSTER, this.path, this.rng);
     this.path = [];
     this.traceGraphics.clear();
+
+    if (window.__debug) {
+      window.__debug.lastTurn = result;
+    }
 
     if (result.valid) {
       this.monster = applyDamage(this.monster, result.totalDamage);

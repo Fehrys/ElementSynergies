@@ -170,3 +170,35 @@ test('releasing with a trailing portal still damages the monster for the valid p
   const endHp = await page.getAttribute('body', 'data-monster-hp');
   expect(Number(endHp)).toBeLessThan(Number(startHp));
 });
+
+test('debug mode exposes lastTurn with damage info after a turn, and stays null before one', async ({ page }) => {
+  await page.goto('/?seed=1&debug=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  const beforeTurn = await page.evaluate(() => (window as any).__debug.lastTurn);
+  expect(beforeTurn).toBeNull();
+
+  const grid = new HexGrid();
+  fillBoard(grid, mulberry32(1));
+  const chain = findValidChain(grid);
+  const points = chain.map((c) => cellToPixel(c.row, c.col));
+
+  const startHp = Number(await page.getAttribute('body', 'data-monster-hp'));
+
+  await page.mouse.move(points[0].x, points[0].y);
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    await page.mouse.move(p.x, p.y);
+  }
+  await page.mouse.up();
+
+  const endHp = Number(await page.getAttribute('body', 'data-monster-hp'));
+  const lastTurn = await page.evaluate(() => (window as any).__debug.lastTurn);
+  expect(lastTurn.valid).toBe(true);
+  expect(lastTurn.damageEvents.length).toBeGreaterThan(0);
+  expect(lastTurn.totalDamage).toBeGreaterThan(0);
+  // lastTurn's reported damage must match the real HP delta exactly, not
+  // just be "some positive number" — this is what makes the test actually
+  // verify lastTurn reflects the real turn, not a disconnected value.
+  expect(lastTurn.totalDamage).toBe(startHp - endHp);
+});
