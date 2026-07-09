@@ -50,6 +50,7 @@ export interface DebugApi {
   spawnTile(row: number, col: number, tile: SpecialTileType): void;
   spawnPortal(row: number, col: number): void;
   getBoard(): { row: number; col: number; content: CellContent }[];
+  setMonsterHp(hp: number): void;
 }
 
 declare global {
@@ -101,6 +102,11 @@ export class BattleScene extends Phaser.Scene {
             col: cell.col,
             content: this.grid.get(cell.row, cell.col),
           })),
+        setMonsterHp: (hp) => {
+          this.monster = { ...this.monster, hp: Math.max(0, Math.min(hp, this.monster.maxHp)) };
+          this.drawHp();
+          this.checkVictory();
+        },
       };
     }
 
@@ -208,6 +214,12 @@ export class BattleScene extends Phaser.Scene {
     this.drawBoard();
     this.drawHp();
 
+    this.checkVictory();
+  }
+
+  // Shared by onPointerUp and the debug setMonsterHp hook so there is
+  // exactly one defeat-check code path.
+  private checkVictory(): void {
     if (isDefeated(this.monster)) {
       this.add.text(140, 400, 'Victory!', { fontSize: '32px', color: '#ffffff' });
       document.body.setAttribute('data-scene', 'victory');

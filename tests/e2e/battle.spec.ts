@@ -217,3 +217,18 @@ test('debug mode can spawn a special tile and a portal, readable via getBoard', 
   expect(bombCell.content).toEqual({ type: 'special', tile: 'bomb' });
   expect(portalCell.content).toEqual({ type: 'portal' });
 });
+
+test('debug mode can set monster hp directly, including triggering victory at 0', async ({ page }) => {
+  await page.goto('/?seed=1&debug=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  await page.evaluate(() => (window as any).__debug.setMonsterHp(42));
+  const midHp = await page.getAttribute('body', 'data-monster-hp');
+  expect(midHp).toBe('42');
+  await expect(page.locator('[data-scene="victory"]')).toHaveCount(0);
+
+  await page.evaluate(() => (window as any).__debug.setMonsterHp(0));
+  const endHp = await page.getAttribute('body', 'data-monster-hp');
+  expect(endHp).toBe('0');
+  await page.waitForSelector('[data-scene="victory"]');
+});
