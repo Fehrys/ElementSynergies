@@ -125,10 +125,10 @@ describe('resolveTurn', () => {
       { row: 1, col: 1 },
       { row: 1, col: 2 },
     ];
-    // Seed 12 (not 1): getAllCells()'s new column-major iteration order changes
-    // which cell consumes which RNG roll during refill, so seed 1's sequence no
-    // longer reaches combo depth 3 under the transposed grid. Seed 12 does.
-    const result = resolveTurn(grid, ROSTER, path, mulberry32(12));
+    // Seed 6: PORTAL_SPAWN_CHANCE was raised from 0.02 to 0.05, shifting which
+    // roll values land in the special-tile band during refill, so the
+    // previous seed's sequence no longer reaches combo depth 3. Seed 6 does.
+    const result = resolveTurn(grid, ROSTER, path, mulberry32(6));
     expect(result.comboDepth).toBeGreaterThanOrEqual(3);
     expect(result.bonusTileSpawned).not.toBeNull();
     expect(['dynamite', 'doubleSword', 'doubleArrowBow']).toContain(result.bonusTileSpawned);

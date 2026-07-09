@@ -116,7 +116,7 @@ export type CellContent =
   | { type: 'portal' }
   | { type: 'empty' };
 
-export const PORTAL_SPAWN_CHANCE = 0.02;
+export const PORTAL_SPAWN_CHANCE = 0.05;
 export const BASE_TILE_SPAWN_CHANCE = 0.03;
 const BASE_TILE_TYPES: SpecialTileType[] = ['bomb', 'sword', 'bow'];
 
