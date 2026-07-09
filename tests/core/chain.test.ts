@@ -198,6 +198,102 @@ describe('validateChain', () => {
     expect(result.portalCells).toEqual([{ row: 0, col: 2 }]);
   });
 
+  it('splits a chain with two portals into three independently-scored sub-chains', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'yellow' },
+      { row: 0, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'yellow' },
+      { row: 1, col: 2, color: 'red' },
+      { row: 1, col: 3, color: 'red' },
+      { row: 2, col: 3, color: 'red' },
+      { row: 3, col: 4, color: 'green' },
+      { row: 4, col: 4, color: 'green' },
+      { row: 3, col: 5, color: 'green' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    grid.set(2, 4, { type: 'portal' });
+    const result = validateChain(grid, [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+      { row: 2, col: 4 },
+      { row: 3, col: 4 },
+      { row: 4, col: 4 },
+      { row: 3, col: 5 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(3);
+
+    const colors = result.subChains.map((sub) => sub.color).sort();
+    expect(colors).toEqual(['green', 'red', 'yellow']);
+
+    const yellowSubChain = result.subChains.find((sub) => sub.color === 'yellow')!;
+    const redSubChain = result.subChains.find((sub) => sub.color === 'red')!;
+    const greenSubChain = result.subChains.find((sub) => sub.color === 'green')!;
+
+    expect(yellowSubChain.stoneCells).toHaveLength(3);
+    expect(redSubChain.stoneCells).toHaveLength(3);
+    expect(greenSubChain.stoneCells).toHaveLength(3);
+
+    expect(result.portalCells).toEqual([
+      { row: 0, col: 2 },
+      { row: 2, col: 4 },
+    ]);
+  });
+
+  it('excludes a bridging portal from a segment that already contains a leading portal', () => {
+    const grid = new HexGrid();
+    grid.set(1, 0, { type: 'portal' });
+    setStones(grid, [
+      { row: 0, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'yellow' },
+      { row: 1, col: 2, color: 'red' },
+      { row: 1, col: 3, color: 'red' },
+      { row: 2, col: 3, color: 'red' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    const result = validateChain(grid, [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(2);
+
+    const yellowSubChain = result.subChains.find((sub) => sub.color === 'yellow')!;
+    const redSubChain = result.subChains.find((sub) => sub.color === 'red')!;
+
+    // The leading portal (1,0) counts toward yellow's length like a special
+    // tile; the bridging portal (0,2) must NOT also land in yellow's cells.
+    expect(yellowSubChain.stoneCells).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+    ]);
+    expect(yellowSubChain.specialTileCells).toEqual([{ row: 1, col: 0 }]);
+
+    // The bridging portal must also be excluded from red's cells.
+    expect(redSubChain.stoneCells).toEqual([
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+    ]);
+    expect(redSubChain.specialTileCells).toEqual([]);
+
+    expect(result.portalCells).toEqual([
+      { row: 1, col: 0 },
+      { row: 0, col: 2 },
+    ]);
+  });
+
   it('allows a chain to start on a special tile, with color decided by the first stone', () => {
     const grid = new HexGrid();
     grid.set(0, 0, { type: 'special', tile: 'sword' });

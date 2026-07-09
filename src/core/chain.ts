@@ -1,7 +1,8 @@
 import { CellCoord, HexGrid, ElementColor } from './grid';
 
 // One scored segment of a validated chain. Normally there's exactly one
-// SubChain per drag; a portal splits a drag into two (one per color).
+// SubChain per drag; each portal in the path splits it into one more (one
+// sub-chain per color the drag passes through).
 export interface SubChain {
   color: ElementColor;
   stoneCells: CellCoord[]; // colored stones that deal damage (count = stoneCells.length)
@@ -11,8 +12,9 @@ export interface SubChain {
 export interface ChainValidationResult {
   valid: boolean;
   subChains: SubChain[];
-  // The portal cell itself (0 or 1 entries) — shared by both sub-chains
-  // when present, so it's tracked separately rather than inside either one.
+  // Every portal cell the path passed through (0 or more entries) — each
+  // one is shared between the two sub-chains it bridges, so portals are
+  // tracked separately rather than inside either sub-chain's own cells.
   portalCells: CellCoord[];
   reason?: string;
 }
@@ -62,13 +64,19 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
   const segments: { color: ElementColor; start: number; end: number }[] = [];
   let activeColor: ElementColor | null = null;
   let segmentStart = 0;
-  let portalIndex = -1;
-  // True only when the path's single portal led the chain (no color had
-  // been decided yet when it was reached) — in that case it's a colorless
-  // passthrough like a special tile, not a bridge, and counts toward the
-  // segment's minimum length. A portal that bridges an already-decided
-  // color into a new one stays excluded from both sides' counts, as today.
-  let portalCountsTowardLength = false;
+  const portalIndices: number[] = [];
+  // The index of the one portal (if any) that led the chain — encountered
+  // before any color had been decided, so it's a colorless passthrough
+  // like a special tile, not a bridge, and counts toward its segment's
+  // minimum length. Only the very first portal in a path can ever be
+  // "leading": the cell right after any portal is forced to be a stone,
+  // which immediately decides a color, so every portal after the first is
+  // necessarily a bridge. A bridging portal stays excluded from both
+  // sides' counts, as today — tracking this by specific index (rather
+  // than a plain boolean) is what keeps a later bridging portal from
+  // being miscounted as the leading one when both fall inside the same
+  // segment's cell range.
+  let leadingPortalIndex = -1;
 
   for (let i = 0; i < path.length; i++) {
     const content = grid.get(path[i].row, path[i].col);
@@ -81,14 +89,13 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
     } else if (content.type === 'special') {
       continue;
     } else if (content.type === 'portal') {
-      if (portalIndex !== -1) return invalid('path uses more than one portal');
       const next = path[i + 1];
       if (!next) return invalid('portal cannot be the last cell');
       const nextContent = grid.get(next.row, next.col);
       if (nextContent.type !== 'stone') return invalid('cell after portal must be a stone');
-      portalIndex = i;
+      portalIndices.push(i);
       if (activeColor === null) {
-        portalCountsTowardLength = true;
+        leadingPortalIndex = i;
       } else {
         segments.push({ color: activeColor, start: segmentStart, end: i });
         segmentStart = i;
@@ -116,7 +123,7 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
       const content = grid.get(path[i].row, path[i].col);
       if (content.type === 'stone') stoneCells.push(path[i]);
       else if (content.type === 'special') specialTileCells.push(path[i]);
-      else if (content.type === 'portal' && portalCountsTowardLength) specialTileCells.push(path[i]);
+      else if (content.type === 'portal' && i === leadingPortalIndex) specialTileCells.push(path[i]);
     }
     if (stoneCells.length + specialTileCells.length >= MIN_CHAIN_LENGTH) {
       subChains.push({ color: segment.color, stoneCells, specialTileCells });
@@ -125,7 +132,7 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
 
   if (subChains.length === 0) return invalid('no segment reaches minimum chain length');
 
-  const portalCells = portalIndex === -1 ? [] : [path[portalIndex]];
+  const portalCells = portalIndices.map((i) => path[i]);
   return { valid: true, subChains, portalCells };
 }
 
