@@ -121,6 +121,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.drawBoard();
     this.drawHp();
+    this.drawBattleLineup();
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
@@ -288,5 +289,38 @@ export class BattleScene extends Phaser.Scene {
     const ratio = this.monster.hp / this.monster.maxHp;
     this.hpBar.fillRect(20, 50, 300 * ratio, 16);
     document.body.setAttribute('data-monster-hp', String(this.monster.hp));
+  }
+
+  // Static wireframe placeholder for the 4-character roster vs. the
+  // monster, filling the band between the HP bar and the grid (y ~100-454).
+  // Drawn once in create() since only HP changes turn-to-turn — that's
+  // handled separately by drawHp() — not the roster/monster identity.
+  private drawBattleLineup(): void {
+    const graphics = this.add.graphics();
+
+    ROSTER.forEach((character, i) => {
+      const x = 40;
+      const y = 147 + i * 70;
+      const width = 100;
+      const height = 50;
+      graphics.fillStyle(COLOR_HEX[character.color], 1);
+      graphics.fillRect(x, y, width, height);
+      this.add
+        .text(x + width / 2, y + height / 2, character.name, { fontSize: '14px', color: '#000000' })
+        .setOrigin(0.5, 0.5);
+    });
+
+    const monsterX = 280;
+    const monsterY = 177;
+    const monsterWidth = 160;
+    const monsterHeight = 200;
+    graphics.lineStyle(2, 0xffffff, 1);
+    graphics.strokeRect(monsterX, monsterY, monsterWidth, monsterHeight);
+    this.add
+      .text(monsterX + monsterWidth / 2, monsterY + monsterHeight / 2, this.monster.name, {
+        fontSize: '14px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5, 0.5);
   }
 }
