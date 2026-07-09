@@ -409,13 +409,63 @@ describe('canExtendChain', () => {
     expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(true);
   });
 
-  it('rejects a second portal', () => {
+  it('allows extending through a second portal now that the cap is removed', () => {
     const grid = new HexGrid();
     grid.set(0, 0, { type: 'portal' });
     setStones(grid, [{ row: 0, col: 1, color: 'blue' }]);
     grid.set(1, 1, { type: 'portal' });
     const path = [{ row: 0, col: 0 }, { row: 0, col: 1 }];
-    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(false);
+    expect(canExtendChain(grid, path, { row: 1, col: 1 })).toBe(true);
+  });
+
+  it('allows extending a chain that already bridged one portal through a second portal', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'yellow' },
+      { row: 0, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'yellow' },
+      { row: 1, col: 2, color: 'red' },
+      { row: 1, col: 3, color: 'red' },
+      { row: 2, col: 3, color: 'red' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    grid.set(2, 4, { type: 'portal' });
+    const path = [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+    ];
+    expect(canExtendChain(grid, path, { row: 2, col: 4 })).toBe(true);
+  });
+
+  it('allows a stone of a brand-new color right after a second portal', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'yellow' },
+      { row: 0, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'yellow' },
+      { row: 1, col: 2, color: 'red' },
+      { row: 1, col: 3, color: 'red' },
+      { row: 2, col: 3, color: 'red' },
+      { row: 3, col: 4, color: 'green' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    grid.set(2, 4, { type: 'portal' });
+    const path = [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+      { row: 2, col: 3 },
+      { row: 2, col: 4 },
+    ];
+    expect(canExtendChain(grid, path, { row: 3, col: 4 })).toBe(true);
   });
 
   it('requires the cell right after a portal to be a stone', () => {

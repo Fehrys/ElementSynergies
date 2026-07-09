@@ -138,12 +138,10 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
 
 // Replays a path (assumed already legal so far) to recover the state a
 // live per-step check needs: the color decided so far (null if none
-// yet) and whether the path's one allowed portal has already been
-// used. Mirrors validateChain's own color/portal bookkeeping so the
+// yet). Mirrors validateChain's own color/portal bookkeeping so the
 // rule lives in one place; canExtendChain is the only other consumer.
-function replayState(grid: HexGrid, path: CellCoord[]): { activeColor: ElementColor | null; portalUsed: boolean } {
+function replayState(grid: HexGrid, path: CellCoord[]): { activeColor: ElementColor | null } {
   let activeColor: ElementColor | null = null;
-  let portalUsed = false;
   let awaitingPortalReset = false;
   for (const cell of path) {
     const content = grid.get(cell.row, cell.col);
@@ -153,11 +151,10 @@ function replayState(grid: HexGrid, path: CellCoord[]): { activeColor: ElementCo
         awaitingPortalReset = false;
       }
     } else if (content.type === 'portal') {
-      portalUsed = true;
       awaitingPortalReset = true;
     }
   }
-  return { activeColor, portalUsed };
+  return { activeColor };
 }
 
 // Whether `candidate` may legally extend `path` during an in-progress
@@ -191,8 +188,7 @@ export function canExtendChain(grid: HexGrid, path: CellCoord[], candidate: Cell
     return true;
   }
   if (content.type === 'portal') {
-    const { portalUsed } = replayState(grid, path);
-    return !portalUsed;
+    return true;
   }
   return false;
 }
