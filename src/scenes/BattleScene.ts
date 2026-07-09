@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   HexGrid,
   CellCoord,
+  CellContent,
   ElementColor,
   SpecialTileType,
   getAllCells,
@@ -46,6 +47,9 @@ const PORTAL_LABEL = '🌈';
 // docs/superpowers/specs/2026-07-09-playwright-debug-mode-design.md.
 export interface DebugApi {
   lastTurn: ResolutionResult | null;
+  spawnTile(row: number, col: number, tile: SpecialTileType): void;
+  spawnPortal(row: number, col: number): void;
+  getBoard(): { row: number; col: number; content: CellContent }[];
 }
 
 declare global {
@@ -81,7 +85,23 @@ export class BattleScene extends Phaser.Scene {
     this.rng = seedParam ? mulberry32(Number(seedParam)) : Math.random;
 
     if (params.get('debug') === '1') {
-      window.__debug = { lastTurn: null };
+      window.__debug = {
+        lastTurn: null,
+        spawnTile: (row, col, tile) => {
+          this.grid.set(row, col, { type: 'special', tile });
+          this.drawBoard();
+        },
+        spawnPortal: (row, col) => {
+          this.grid.set(row, col, { type: 'portal' });
+          this.drawBoard();
+        },
+        getBoard: () =>
+          getAllCells().map((cell) => ({
+            row: cell.row,
+            col: cell.col,
+            content: this.grid.get(cell.row, cell.col),
+          })),
+      };
     }
 
     this.grid = new HexGrid();

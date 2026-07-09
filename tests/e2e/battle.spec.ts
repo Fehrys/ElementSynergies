@@ -202,3 +202,18 @@ test('debug mode exposes lastTurn with damage info after a turn, and stays null 
   // verify lastTurn reflects the real turn, not a disconnected value.
   expect(lastTurn.totalDamage).toBe(startHp - endHp);
 });
+
+test('debug mode can spawn a special tile and a portal, readable via getBoard', async ({ page }) => {
+  await page.goto('/?seed=1&debug=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  await page.evaluate(() => (window as any).__debug.spawnTile(0, 0, 'bomb'));
+  await page.evaluate(() => (window as any).__debug.spawnPortal(0, 1));
+
+  const board = await page.evaluate(() => (window as any).__debug.getBoard());
+  const bombCell = board.find((c: any) => c.row === 0 && c.col === 0);
+  const portalCell = board.find((c: any) => c.row === 0 && c.col === 1);
+
+  expect(bombCell.content).toEqual({ type: 'special', tile: 'bomb' });
+  expect(portalCell.content).toEqual({ type: 'portal' });
+});
