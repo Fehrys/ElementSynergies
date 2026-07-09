@@ -4,8 +4,17 @@
 // `window`/`document` at import time, which would crash outside a
 // browser page. Keeping this math Phaser-free lets both BattleScene
 // (in the browser) and the e2e spec (in Node) share one implementation.
-export const ORIGIN_X = 40;
-export const ORIGIN_Y = 120;
+
+// Recentered/bottom-aligned for the 480x720 canvas: the grid's bounding
+// box (COLS=7 columns, tallest column 5 rows, COL_WIDTH=56, ROW_HEIGHT=48,
+// stones rendered at 22px radius) is 380px wide and 236px tall including
+// radius padding. ORIGIN_X centers that 380px block in the 480px-wide
+// canvas (50px margin each side). ORIGIN_Y bottom-aligns it with a 20px
+// margin from the 720px-tall canvas's bottom edge. See
+// docs/superpowers/specs/2026-07-09-battle-lineup-and-layout-design.md
+// for the full derivation.
+export const ORIGIN_X = 72;
+export const ORIGIN_Y = 486;
 export const COL_WIDTH = 56;
 export const ROW_HEIGHT = 48;
 
