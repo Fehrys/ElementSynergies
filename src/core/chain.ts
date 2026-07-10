@@ -110,12 +110,14 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
 
   segments.push({ color: activeColor, start: segmentStart, end: path.length - 1 });
 
-  // Build a SubChain per segment, but only keep segments that reach the
-  // minimum length — a portal side that falls short simply contributes
-  // no sub-chain (design decision: it doesn't invalidate the other side).
-  // Special tiles (and a leading, non-bridging portal) count toward the
-  // minimum alongside stones; a bridging portal does not.
+  // Build a SubChain per segment. The minimum length applies to the whole
+  // chain (summed across every segment), not to any single color's
+  // segment — a portal-bridged side can be as small as 1 stone and still
+  // score, as long as the total meets MIN_CHAIN_LENGTH. Special tiles
+  // (and a leading, non-bridging portal) count toward the total alongside
+  // stones; a bridging portal does not.
   const subChains: SubChain[] = [];
+  let totalScoringCells = 0;
   for (const segment of segments) {
     const stoneCells: CellCoord[] = [];
     const specialTileCells: CellCoord[] = [];
@@ -125,12 +127,11 @@ export function validateChain(grid: HexGrid, path: CellCoord[]): ChainValidation
       else if (content.type === 'special') specialTileCells.push(path[i]);
       else if (content.type === 'portal' && i === leadingPortalIndex) specialTileCells.push(path[i]);
     }
-    if (stoneCells.length + specialTileCells.length >= MIN_CHAIN_LENGTH) {
-      subChains.push({ color: segment.color, stoneCells, specialTileCells });
-    }
+    totalScoringCells += stoneCells.length + specialTileCells.length;
+    subChains.push({ color: segment.color, stoneCells, specialTileCells });
   }
 
-  if (subChains.length === 0) return invalid('no segment reaches minimum chain length');
+  if (totalScoringCells < MIN_CHAIN_LENGTH) return invalid('chain does not reach minimum chain length');
 
   const portalCells = portalIndices.map((i) => path[i]);
   return { valid: true, subChains, portalCells };

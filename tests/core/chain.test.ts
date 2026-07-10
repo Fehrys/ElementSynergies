@@ -138,7 +138,7 @@ describe('validateChain', () => {
     expect(result.reason).toMatch(/color mismatch/);
   });
 
-  it('rejects a portal chain where a side falls short of minimum length', () => {
+  it('allows a portal chain where every side is individually short, as long as the total reaches the minimum', () => {
     const grid = new HexGrid();
     setStones(grid, [
       { row: 0, col: 0, color: 'red' },
@@ -155,10 +155,77 @@ describe('validateChain', () => {
       { row: 1, col: 2 },
       { row: 1, col: 3 },
     ]);
-    // red side only has 2 stones (fails min 3); blue side has 2 (also fails via this path)
-    // so this exact path is invalid — covered fully by the next, genuinely
-    // portal-bridged passing case.
-    expect(result.valid).toBe(false);
+    // red side has 2 stones and blue side has 2 stones — neither alone
+    // reaches MIN_CHAIN_LENGTH, but the combined total (4) does, so both
+    // sides now score.
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(2);
+
+    const redSubChain = result.subChains.find((sub) => sub.color === 'red')!;
+    const blueSubChain = result.subChains.find((sub) => sub.color === 'blue')!;
+    expect(redSubChain.stoneCells).toHaveLength(2);
+    expect(blueSubChain.stoneCells).toHaveLength(2);
+
+    expect(result.portalCells).toEqual([{ row: 0, col: 2 }]);
+  });
+
+  it('scores three portal-chained singleton stones once their combined total meets the minimum', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'red' },
+      { row: 1, col: 2, color: 'blue' },
+    ]);
+    grid.set(0, 0, { type: 'portal' });
+    grid.set(0, 2, { type: 'portal' });
+    const result = validateChain(grid, [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(3);
+
+    const colors = result.subChains.map((sub) => sub.color).sort();
+    expect(colors).toEqual(['blue', 'red', 'yellow']);
+    for (const sub of result.subChains) {
+      expect(sub.stoneCells).toHaveLength(1);
+    }
+
+    expect(result.portalCells).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 2 },
+    ]);
+  });
+
+  it('clears a short trailing side instead of leaving it orphaned on the board', () => {
+    const grid = new HexGrid();
+    setStones(grid, [
+      { row: 1, col: 0, color: 'yellow' },
+      { row: 0, col: 0, color: 'yellow' },
+      { row: 0, col: 1, color: 'yellow' },
+      { row: 1, col: 2, color: 'red' },
+    ]);
+    grid.set(0, 2, { type: 'portal' });
+    const result = validateChain(grid, [
+      { row: 1, col: 0 },
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 2 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.subChains).toHaveLength(2);
+
+    const yellowSubChain = result.subChains.find((sub) => sub.color === 'yellow')!;
+    const redSubChain = result.subChains.find((sub) => sub.color === 'red')!;
+    expect(yellowSubChain.stoneCells).toHaveLength(3);
+    // Before this change, a 1-stone side was dropped entirely and its
+    // cell never appeared in any sub-chain — it stayed on the board even
+    // though it was dragged over. Now it's included and will clear.
+    expect(redSubChain.stoneCells).toEqual([{ row: 1, col: 2 }]);
   });
 
   it('splits a portal-bridged chain into two independently-scored sub-chains', () => {
