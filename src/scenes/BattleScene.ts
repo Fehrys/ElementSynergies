@@ -12,7 +12,13 @@ import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn, ResolutionResult } from '../core/resolution';
-import { cellToPixel, STONE_RADIUS } from './boardLayout';
+import { cellToPixel, STONE_RADIUS, tileBounds } from './boardLayout';
+import {
+  computeLayoutRegions,
+  computeTableBounds,
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from './compositionLayout';
 import { DEPTH } from './depth';
 
 export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, STONE_RADIUS, cellToPixel } from './boardLayout';
@@ -69,6 +75,7 @@ export class BattleScene extends Phaser.Scene {
   private dragging = false;
   private monsterContainer!: Phaser.GameObjects.Container;
   private heroContainer!: Phaser.GameObjects.Container;
+  private tableContainer!: Phaser.GameObjects.Container;
   private boardLayer!: Phaser.GameObjects.Container;
   private puzzleFeedbackContainer!: Phaser.GameObjects.Container;
   private hudContainer!: Phaser.GameObjects.Container;
@@ -122,6 +129,7 @@ export class BattleScene extends Phaser.Scene {
     // coordinates render 1:1 in stage space (never reposition via transforms).
     this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
     this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
+    this.tableContainer = this.add.container(0, 0).setDepth(DEPTH.TABLE);
     this.boardLayer = this.add.container(0, 0).setDepth(DEPTH.BOARD);
     this.puzzleFeedbackContainer = this.add.container(0, 0).setDepth(DEPTH.PUZZLE_FEEDBACK);
     this.hudContainer = this.add.container(0, 0).setDepth(DEPTH.HUD);
@@ -133,6 +141,7 @@ export class BattleScene extends Phaser.Scene {
     this.hpBar = this.add.graphics();
     this.hudContainer.add([this.hpBar, this.hpText]);
 
+    this.drawTable();
     this.drawBoard();
     this.drawHp();
     this.drawBattleLineup();
@@ -294,6 +303,24 @@ export class BattleScene extends Phaser.Scene {
       this.traceGraphics.lineTo(p.x, p.y);
     }
     this.traceGraphics.strokePath();
+  }
+
+  // Persistent preparation-table surface, drawn ONCE in create(). Lives in
+  // its own container below the tile layer; drawBoard() never touches it, so
+  // rebuilding tiles can never destroy the table (a persistent layer). The
+  // footprint is derived from the real tile bounds — the art fits the engine,
+  // not the reverse.
+  private drawTable(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const t = computeTableBounds(regions, tileBounds());
+    const g = this.add.graphics();
+    g.fillStyle(0x6b4a30, 1);
+    g.fillRoundedRect(t.x, t.y, t.width, t.height, 24);
+    // A slightly darker rear-edge band to hint thickness/depth — still flat,
+    // no gradient/asset.
+    g.fillStyle(0x543a25, 1);
+    g.fillRoundedRect(t.x, t.y, t.width, 18, 9);
+    this.tableContainer.add(g);
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM
