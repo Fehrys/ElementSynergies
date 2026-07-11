@@ -13,6 +13,7 @@ import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn, ResolutionResult } from '../core/resolution';
 import { cellToPixel } from './boardLayout';
+import { DEPTH } from './depth';
 
 export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
 
@@ -68,7 +69,12 @@ export class BattleScene extends Phaser.Scene {
   private monster!: Monster;
   private path: CellCoord[] = [];
   private dragging = false;
+  private monsterContainer!: Phaser.GameObjects.Container;
+  private heroContainer!: Phaser.GameObjects.Container;
   private boardLayer!: Phaser.GameObjects.Container;
+  private puzzleFeedbackContainer!: Phaser.GameObjects.Container;
+  private hudContainer!: Phaser.GameObjects.Container;
+  private transientUiContainer!: Phaser.GameObjects.Container;
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
@@ -114,10 +120,20 @@ export class BattleScene extends Phaser.Scene {
     fillBoard(this.grid, this.rng);
     this.monster = createMonster('Frost Yeti', 1000);
 
-    this.boardLayer = this.add.container(0, 0);
+    // Semantic containers, all at (0,0) scale 1 so absolute cellToPixel
+    // coordinates render 1:1 in stage space (never reposition via transforms).
+    this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
+    this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
+    this.boardLayer = this.add.container(0, 0).setDepth(DEPTH.BOARD);
+    this.puzzleFeedbackContainer = this.add.container(0, 0).setDepth(DEPTH.PUZZLE_FEEDBACK);
+    this.hudContainer = this.add.container(0, 0).setDepth(DEPTH.HUD);
+    this.transientUiContainer = this.add.container(0, 0).setDepth(DEPTH.TRANSIENT_UI);
+
     this.traceGraphics = this.add.graphics();
+    this.puzzleFeedbackContainer.add(this.traceGraphics);
     this.hpText = this.add.text(20, 20, '', { fontSize: '20px', color: '#ffffff' });
     this.hpBar = this.add.graphics();
+    this.hudContainer.add([this.hpBar, this.hpText]);
 
     this.drawBoard();
     this.drawHp();
@@ -222,7 +238,11 @@ export class BattleScene extends Phaser.Scene {
   // exactly one defeat-check code path.
   private checkVictory(): void {
     if (isDefeated(this.monster)) {
-      this.add.text(140, 400, 'Victory!', { fontSize: '32px', color: '#ffffff' });
+      const victoryText = this.add.text(140, 400, 'Victory!', {
+        fontSize: '32px',
+        color: '#ffffff',
+      });
+      this.transientUiContainer.add(victoryText);
       document.body.setAttribute('data-scene', 'victory');
     }
   }
@@ -296,31 +316,37 @@ export class BattleScene extends Phaser.Scene {
   // Drawn once in create() since only HP changes turn-to-turn — that's
   // handled separately by drawHp() — not the roster/monster identity.
   private drawBattleLineup(): void {
-    const graphics = this.add.graphics();
+    const heroGraphics = this.add.graphics();
+    this.heroContainer.add(heroGraphics);
 
     ROSTER.forEach((character, i) => {
       const x = 40;
       const y = 147 + i * 70;
       const width = 100;
       const height = 50;
-      graphics.fillStyle(COLOR_HEX[character.color], 1);
-      graphics.fillRect(x, y, width, height);
-      this.add
+      heroGraphics.fillStyle(COLOR_HEX[character.color], 1);
+      heroGraphics.fillRect(x, y, width, height);
+      const label = this.add
         .text(x + width / 2, y + height / 2, character.name, { fontSize: '14px', color: '#000000' })
         .setOrigin(0.5, 0.5);
+      this.heroContainer.add(label);
     });
+
+    const monsterGraphics = this.add.graphics();
+    this.monsterContainer.add(monsterGraphics);
 
     const monsterX = 280;
     const monsterY = 177;
     const monsterWidth = 160;
     const monsterHeight = 200;
-    graphics.lineStyle(2, 0xffffff, 1);
-    graphics.strokeRect(monsterX, monsterY, monsterWidth, monsterHeight);
-    this.add
+    monsterGraphics.lineStyle(2, 0xffffff, 1);
+    monsterGraphics.strokeRect(monsterX, monsterY, monsterWidth, monsterHeight);
+    const monsterLabel = this.add
       .text(monsterX + monsterWidth / 2, monsterY + monsterHeight / 2, this.monster.name, {
         fontSize: '14px',
         color: '#ffffff',
       })
       .setOrigin(0.5, 0.5);
+    this.monsterContainer.add(monsterLabel);
   }
 }
