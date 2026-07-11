@@ -15,6 +15,7 @@ import { resolveTurn, ResolutionResult } from '../core/resolution';
 import { cellToPixel, STONE_RADIUS, tileBounds } from './boardLayout';
 import {
   computeLayoutRegions,
+  computePlaceholderLayout,
   computeTableBounds,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -144,7 +145,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawTable();
     this.drawBoard();
     this.drawHp();
-    this.drawBattleLineup();
+    this.drawCharacterPlaceholders();
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
@@ -336,42 +337,50 @@ export class BattleScene extends Phaser.Scene {
     document.body.setAttribute('data-monster-hp', String(this.monster.hp));
   }
 
-  // Static wireframe placeholder for the 4-character roster vs. the
-  // monster, filling the band between the HP bar and the grid (y ~100-454).
-  // Drawn once in create() since only HP changes turn-to-turn — that's
-  // handled separately by drawHp() — not the roster/monster identity.
-  private drawBattleLineup(): void {
-    const heroGraphics = this.add.graphics();
-    this.heroContainer.add(heroGraphics);
+  // Flat production-footprint placeholders for the monster and the 4-hero
+  // brigade, positioned from the composition layout — replaces the old
+  // rectangle-card lineup. Drawn once in create(): only HP changes
+  // turn-to-turn (handled by drawHp()); identity does not. Shapes are flat
+  // (no assets), but their bounds, anchors, shadows, and overlap already
+  // match the intended final footprints. See
+  // docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md.
+  private drawCharacterPlaceholders(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const layout = computePlaceholderLayout(regions);
 
-    ROSTER.forEach((character, i) => {
-      const x = 40;
-      const y = 147 + i * 70;
-      const width = 100;
-      const height = 50;
-      heroGraphics.fillStyle(COLOR_HEX[character.color], 1);
-      heroGraphics.fillRect(x, y, width, height);
-      const label = this.add
-        .text(x + width / 2, y + height / 2, character.name, { fontSize: '14px', color: '#000000' })
-        .setOrigin(0.5, 0.5);
-      this.heroContainer.add(label);
-    });
-
-    const monsterGraphics = this.add.graphics();
-    this.monsterContainer.add(monsterGraphics);
-
-    const monsterX = 280;
-    const monsterY = 177;
-    const monsterWidth = 160;
-    const monsterHeight = 200;
-    monsterGraphics.lineStyle(2, 0xffffff, 1);
-    monsterGraphics.strokeRect(monsterX, monsterY, monsterWidth, monsterHeight);
-    const monsterLabel = this.add
-      .text(monsterX + monsterWidth / 2, monsterY + monsterHeight / 2, this.monster.name, {
-        fontSize: '14px',
+    // Monster: dominant silhouette + contact shadow, centered in the monster band.
+    const m = layout.monster;
+    const mCenterX = m.x + m.width / 2;
+    const mShadow = this.add.graphics();
+    mShadow.fillStyle(0x000000, 0.25);
+    mShadow.fillEllipse(mCenterX, m.y + m.height - 6, m.width * 0.7, 24);
+    const mShape = this.add.graphics();
+    mShape.fillStyle(0x7a4fb5, 1);
+    mShape.fillRoundedRect(m.x, m.y, m.width, m.height, 28);
+    const mLabel = this.add
+      .text(mCenterX, m.y + m.height / 2, this.monster.name, {
+        fontSize: '16px',
         color: '#ffffff',
       })
       .setOrigin(0.5, 0.5);
-    this.monsterContainer.add(monsterLabel);
+    this.monsterContainer.add([mShadow, mShape, mLabel]);
+
+    // Heroes: one flat capsule per roster entry, evenly spaced across the
+    // board width band (bottom-center anchored so future sprites can share
+    // the footprint), each with a small contact shadow.
+    ROSTER.forEach((character, i) => {
+      const h = layout.heroes[i];
+      const cx = h.x + h.width / 2;
+      const shadow = this.add.graphics();
+      shadow.fillStyle(0x000000, 0.25);
+      shadow.fillEllipse(cx, h.y + h.height - 2, h.width * 0.8, 12);
+      const shape = this.add.graphics();
+      shape.fillStyle(COLOR_HEX[character.color], 1);
+      shape.fillRoundedRect(h.x, h.y, h.width, h.height, 16);
+      const label = this.add
+        .text(cx, h.y + h.height + 12, character.name, { fontSize: '11px', color: '#ffffff' })
+        .setOrigin(0.5, 0.5);
+      this.heroContainer.add([shadow, shape, label]);
+    });
   }
 }
