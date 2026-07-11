@@ -50,3 +50,21 @@ The core rule of this codebase: **puzzle/combat logic is pure TypeScript with ze
 ## Workflow convention
 
 Feature work in this repo follows a design-doc → plan → implementation pattern under `docs/superpowers/`: a dated design spec in `docs/superpowers/specs/`, then a dated implementation plan in `docs/superpowers/plans/`, then the actual commits. Check the latest files in both folders for the most current mechanic rules and rationale before changing puzzle/combat behavior — the spec files record design decisions (including explicitly rejected alternatives) that aren't otherwise visible in code.
+
+## Design documentation
+
+Before making visual, layout, animation, or UX changes, read `design/README.md`.
+
+Then read only the design documents relevant to the requested task.
+
+For BattleScene visual work, always read:
+
+- `design/DESIGN_PRINCIPLES.md`
+- `design/COMBAT_SCREEN.md`
+- `design/VISUAL_COMPOSITION.md`
+
+For animation or interaction feedback work, also read:
+
+- `design/MOTION_LANGUAGE.md`
+
+Creative documents describe intent. Do not silently alter core gameplay rules to satisfy visual direction.
