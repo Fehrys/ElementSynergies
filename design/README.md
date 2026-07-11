@@ -20,6 +20,9 @@ Defines composition, depth, overlap, environmental integration, and the avoidanc
 ### MOTION_LANGUAGE.md
 Defines animation personality, interaction feedback, rhythm, escalation, and movement principles.
 
+### ART_TARGET.md
+Defines the approved visual target and explains which qualities must be reproduced without copying the reference composition literally.
+
 ## How to use these documents
 
 Before modifying a screen, read:
@@ -61,3 +64,11 @@ They do not yet define:
 - final production assets.
 
 Those will be documented separately once the Art Target is validated.
+
+## Implementation documents
+
+Files inside `design/implementation/` translate approved creative direction into technical constraints for Phaser.
+
+They may contain concrete layout ranges, layer orders, runtime responsibilities, and asset contracts.
+
+Unlike the high-level creative documents, these files may evolve as the implementation is tested.

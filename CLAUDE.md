@@ -68,3 +68,9 @@ For animation or interaction feedback work, also read:
 - `design/MOTION_LANGUAGE.md`
 
 Creative documents describe intent. Do not silently alter core gameplay rules to satisfy visual direction.
+
+For BattleScene art, layout, rendering, or presentation work, also read:
+
+- `design/ART_TARGET.md`
+
+Treat the reference image as a qualitative art target, not as an exact layout specification.
