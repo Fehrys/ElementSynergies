@@ -292,6 +292,59 @@ intended final footprints.
 
 ---
 
+### Task B0: Canvas-bounds invariant test (accepted-baseline guard)
+
+**Files:**
+- Create: `tests/e2e/canvas-bounds.spec.ts`
+
+Locks the accepted Checkpoint-A baseline: the game canvas stays unscaled at viewport
+origin, exactly 480×720. This is a **new** spec file — `tests/e2e/battle.spec.ts` is not
+modified. It guards the invariant that every later positioning task relies on (absolute
+`cellToPixel` coordinates map 1:1 to viewport pixels because the canvas is at 0,0, scale 1).
+
+- [ ] **Step 1: Write the test**
+
+Create `tests/e2e/canvas-bounds.spec.ts`:
+
+```ts
+import { test, expect } from '@playwright/test';
+
+// The canvas must stay unscaled at the viewport origin so that absolute
+// cellToPixel coordinates map 1:1 to viewport pixels. If this ever fails,
+// pointer accuracy in battle.spec.ts is silently compromised.
+test('the game canvas stays unscaled at viewport origin (480x720)', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 720 });
+  await page.goto('/?seed=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  const box = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) throw new Error('no canvas element');
+    const r = canvas.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+
+  expect(box.x).toBe(0);
+  expect(box.y).toBe(0);
+  expect(box.width).toBe(480);
+  expect(box.height).toBe(720);
+});
+```
+
+- [ ] **Step 2: Run it to verify it passes against the current build**
+
+Run: `npx playwright test tests/e2e/canvas-bounds.spec.ts`
+Expected: PASS (1 test) — the accepted `index.html` reset already puts the canvas at 0,0.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/e2e/canvas-bounds.spec.ts
+git commit -m "test: assert canvas stays unscaled at viewport origin (480x720)"
+```
+
+---
+
 ### Task B1: `compositionLayout.ts` — regions + placeholder footprints
 
 **Files:**
@@ -379,9 +432,15 @@ describe('computeTableBounds', () => {
   const tileBounds = { left: 50, right: 430, top: 426, bottom: 662 };
   const table = computeTableBounds(regions, tileBounds);
 
-  it('matches the board width band horizontally', () => {
+  it('produces the expected connecting-surface bounds for 480x720', () => {
     expect(table.x).toBeCloseTo(28.8, 5);
+    expect(table.y).toBeCloseTo(323.2, 5);
     expect(table.width).toBeCloseTo(422.4, 5);
+    expect(table.height).toBeCloseTo(388.8, 5);
+  });
+
+  it('rises into the hero band so the surface connects heroes to the board', () => {
+    expect(table.y).toBeLessThan(regions.hero.bottom);
   });
 
   it('fully encloses the tile bounding box (art fits around tiles)', () => {
@@ -494,16 +553,23 @@ export function computePlaceholderLayout(regions: LayoutRegions): PlaceholderLay
   return { monster, heroes };
 }
 
-const TABLE_TOP_PADDING = 20; // px above the tile bbox the table rear edge starts
+const MIN_TILE_TOP_PADDING = 20; // min px of clearance above the tile bbox
+const TABLE_REAR_OVERLAP = 8; // px the table rear edge rises into the hero band
 const TABLE_BOTTOM_MARGIN = 8; // px from the safe-area bottom the table front edge ends
 
 export function computeTableBounds(
   regions: LayoutRegions,
   tileBounds: { left: number; right: number; top: number; bottom: number },
 ): Rect {
-  // Bottom edge derived from the safe-area band (an argument), not a module
-  // constant — this function depends only on its arguments.
-  const y = tileBounds.top - TABLE_TOP_PADDING;
+  // The rear edge rises to whichever is HIGHER on screen: a minimum clearance
+  // above the tiles, or just into the hero band — so the surface visually
+  // connects the brigade to the board with no empty gap. Both the top and the
+  // bottom are derived from the arguments (hero/safe-area bands), never a
+  // canvas constant.
+  const y = Math.min(
+    tileBounds.top - MIN_TILE_TOP_PADDING,
+    regions.hero.bottom - TABLE_REAR_OVERLAP,
+  );
   return {
     x: regions.boardWidthBand.left,
     y,

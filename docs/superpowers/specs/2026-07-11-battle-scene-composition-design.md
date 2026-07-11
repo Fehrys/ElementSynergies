@@ -108,7 +108,9 @@ Region percentages from the blueprint: `topHud 0–8`, `monster 8–34`, `hero 3
 - Monster placeholder: `{x 150, y 81.2, width 180, height 140}` (140px ≈ 2× hero height).
 - Hero placeholders (width 50, height 70, centerY 288), centers evenly across the board
   band: `81.6, 187.2, 292.8, 398.4`.
-- Table: `{x 28.8, y 406, width 422.4, height 306}` — encloses the tile bbox on all sides.
+- Table: `{x 28.8, y 323.2, width 422.4, height 388.8}` — rear edge rises into the hero
+  band (`hero.bottom − 8`) so the surface connects the brigade to the board, while still
+  enclosing the tile bbox on all sides.
 
 ## Testing strategy
 
