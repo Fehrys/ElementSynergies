@@ -12,12 +12,10 @@ import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn, ResolutionResult } from '../core/resolution';
-import { cellToPixel } from './boardLayout';
+import { cellToPixel, STONE_RADIUS } from './boardLayout';
 import { DEPTH } from './depth';
 
-export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
-
-const STONE_RADIUS = 22;
+export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, STONE_RADIUS, cellToPixel } from './boardLayout';
 
 const COLOR_HEX: Record<ElementColor, number> = {
   red: 0xe74c3c,
