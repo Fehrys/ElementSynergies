@@ -112,6 +112,32 @@ Region percentages from the blueprint: `topHud 0–8`, `monster 8–34`, `hero 3
   band (`hero.bottom − 8`) so the surface connects the brigade to the board, while still
   enclosing the tile bbox on all sides.
 
+### Milestone B5 amendment — table/brigade/puzzle/boss-HUD refinement
+
+Composition-refinement pass over the placeholders (no new gameplay, art, or scaling). It
+supersedes several derived values above:
+
+- **Table span** is factored into `computeTableSpan(regions) → { top, bottom }`
+  (`top = hero.bottom − TABLE_REAR_OVERLAP = 323.2`,
+  `bottom = safeBottom.bottom − TABLE_BOTTOM_MARGIN = 712`). `computeTableBounds` now grows
+  from this span to enclose the tiles; the table bounds are **unchanged**
+  (`{28.8, 323.2, 422.4, 388.8}`).
+- **`ORIGIN_Y = 422`** (was 448): the 236px tile bbox is now **vertically centered inside
+  the table span** — `ORIGIN_Y = round(span.top + (span.bottom − span.top − BBOX_HEIGHT)/2 +
+  STONE_RADIUS)` — leaving ≈77px of table above and ≈76px below the puzzle instead of the
+  puzzle sitting low.
+- **`tileBounds()` = `{left 50, right 430, top 400, bottom 636}`.**
+- **Heroes grounded:** each hero's lower edge = `span.top + HERO_TABLE_OVERLAP (8)` = 331.2,
+  so it sinks ≈8px behind the table's rear edge (masked by the higher-depth table lip).
+  Width 50 / height 70 and the horizontal centers (`81.6, 187.2, 292.8, 398.4`) are
+  unchanged; only `y` moves down ≈8px. Hero-name labels are removed (they were always hidden
+  behind the table).
+- **Boss HUD** is factored into `computeBossHudLayout(regions) → { text, bar }`: text centered
+  at the monster center-x (240) with origin `(0.5, 0)` at `y 8`, ~18px; bar
+  `{x 120, y 36, width 240 (= monster.width + 60), height 12}`. Both sit inside the `topHud`
+  band, replacing the old left-aligned `x 20 / width 300` bar. `data-monster-hp`, the HP
+  ratio math, and `drawHp()`'s lifecycle are unchanged.
+
 ## Testing strategy
 
 - **Automated (vitest, Phaser-free):** `compositionLayout` region/placeholder/table math

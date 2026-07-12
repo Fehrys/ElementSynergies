@@ -17,6 +17,7 @@ import {
   computeLayoutRegions,
   computePlaceholderLayout,
   computeTableBounds,
+  computeBossHudLayout,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
 } from './compositionLayout';
@@ -138,7 +139,9 @@ export class BattleScene extends Phaser.Scene {
 
     this.traceGraphics = this.add.graphics();
     this.puzzleFeedbackContainer.add(this.traceGraphics);
-    this.hpText = this.add.text(20, 20, '', { fontSize: '20px', color: '#ffffff' });
+    // Centered above the monster (origin 0.5,0); exact position is set from the
+    // composition layout in drawHp().
+    this.hpText = this.add.text(0, 0, '', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5, 0);
     this.hpBar = this.add.graphics();
     this.hudContainer.add([this.hpBar, this.hpText]);
 
@@ -327,13 +330,18 @@ export class BattleScene extends Phaser.Scene {
   // Redraws the HP text/bar and mirrors the current HP into a DOM
   // attribute so the Playwright e2e test can read it without parsing canvas.
   private drawHp(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const hud = computeBossHudLayout(regions);
+    const bar = hud.bar;
+
     this.hpText.setText(`${this.monster.name}: ${this.monster.hp}/${this.monster.maxHp}`);
+    this.hpText.setPosition(hud.text.x, hud.text.y);
     this.hpBar.clear();
     this.hpBar.fillStyle(0x333333, 1);
-    this.hpBar.fillRect(20, 50, 300, 16);
+    this.hpBar.fillRect(bar.x, bar.y, bar.width, bar.height);
     this.hpBar.fillStyle(0xdd3333, 1);
     const ratio = this.monster.hp / this.monster.maxHp;
-    this.hpBar.fillRect(20, 50, 300 * ratio, 16);
+    this.hpBar.fillRect(bar.x, bar.y, bar.width * ratio, bar.height);
     document.body.setAttribute('data-monster-hp', String(this.monster.hp));
   }
 
@@ -367,7 +375,10 @@ export class BattleScene extends Phaser.Scene {
 
     // Heroes: one flat capsule per roster entry, evenly spaced across the
     // board width band (bottom-center anchored so future sprites can share
-    // the footprint), each with a small contact shadow.
+    // the footprint), each with a small contact shadow. Their lower edge sinks
+    // behind the table's rear edge (grounded by the layout), so the table lip
+    // masks the bottom few pixels. No name labels: the previous ones sat behind
+    // the table and were never visible.
     ROSTER.forEach((character, i) => {
       const h = layout.heroes[i];
       const cx = h.x + h.width / 2;
@@ -377,10 +388,7 @@ export class BattleScene extends Phaser.Scene {
       const shape = this.add.graphics();
       shape.fillStyle(COLOR_HEX[character.color], 1);
       shape.fillRoundedRect(h.x, h.y, h.width, h.height, 16);
-      const label = this.add
-        .text(cx, h.y + h.height + 12, character.name, { fontSize: '11px', color: '#ffffff' })
-        .setOrigin(0.5, 0.5);
-      this.heroContainer.add([shadow, shape, label]);
+      this.heroContainer.add([shadow, shape]);
     });
   }
 }

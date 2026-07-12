@@ -4,7 +4,12 @@
 // time, which would crash outside a browser page. Keeping this math
 // Phaser-free lets both BattleScene (browser) and the e2e spec (Node) share
 // one implementation.
-import { CANVAS_WIDTH, CANVAS_HEIGHT, computeLayoutRegions } from './compositionLayout';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  computeLayoutRegions,
+  computeTableSpan,
+} from './compositionLayout';
 
 export const COL_WIDTH = 56;
 export const ROW_HEIGHT = 48;
@@ -18,17 +23,17 @@ export const STONE_RADIUS = 22;
 // docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md.
 const BBOX_WIDTH = 6 * COL_WIDTH + 2 * STONE_RADIUS; // 380
 const BBOX_HEIGHT = 4 * ROW_HEIGHT + 2 * STONE_RADIUS; // 236
-const BOARD_BOTTOM_MARGIN = 8; // px above the 93% safe-area line
 
 const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
 
 // Horizontal: center the tile bbox on the full canvas width.
 export const ORIGIN_X = Math.round((CANVAS_WIDTH - BBOX_WIDTH) / 2 + STONE_RADIUS);
-// Vertical: bottom-align the tile bbox inside the board band, leaving
-// BOARD_BOTTOM_MARGIN px above the safe-area line.
-export const ORIGIN_Y = Math.round(
-  regions.board.bottom - BOARD_BOTTOM_MARGIN - (BBOX_HEIGHT - STONE_RADIUS),
-);
+// Vertical: center the tile bbox inside the preparation-table span (the same
+// span the table surface is drawn on), so there is roughly equal visible table
+// above and below the puzzle instead of the puzzle sitting low in the table.
+const tableSpan = computeTableSpan(regions);
+const tileBoundsTop = tableSpan.top + (tableSpan.bottom - tableSpan.top - BBOX_HEIGHT) / 2;
+export const ORIGIN_Y = Math.round(tileBoundsTop + STONE_RADIUS);
 
 // Converts a logical (row, col) cell into the ABSOLUTE stage-space position
 // of its center. Columns render as straight vertical lines (x depends only

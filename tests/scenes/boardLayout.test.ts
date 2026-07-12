@@ -1,17 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { ORIGIN_X, ORIGIN_Y, STONE_RADIUS, cellToPixel, tileBounds } from '../../src/scenes/boardLayout';
-import { computeLayoutRegions, CANVAS_WIDTH, CANVAS_HEIGHT } from '../../src/scenes/compositionLayout';
+import {
+  computeLayoutRegions,
+  computeTableSpan,
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from '../../src/scenes/compositionLayout';
 
 describe('boardLayout origin derivation', () => {
   it('pins the derived origin constants', () => {
     expect(ORIGIN_X).toBe(72);
-    expect(ORIGIN_Y).toBe(448);
+    expect(ORIGIN_Y).toBe(422);
     expect(STONE_RADIUS).toBe(22);
   });
 
   it('reports a tile bounding box consistent with cellToPixel', () => {
     const b = tileBounds();
-    expect(b).toEqual({ left: 50, right: 430, top: 426, bottom: 662 });
+    expect(b).toEqual({ left: 50, right: 430, top: 400, bottom: 636 });
     // Lowest cell overall is col 0 (even, 5 rows) row 4.
     expect(b.bottom).toBe(cellToPixel(4, 0).y + STONE_RADIUS);
     expect(b.top).toBe(cellToPixel(0, 0).y - STONE_RADIUS);
@@ -22,6 +27,16 @@ describe('boardLayout origin derivation', () => {
     const b = tileBounds();
     expect(b.top).toBeGreaterThanOrEqual(regions.board.top);
     expect(b.bottom).toBeLessThanOrEqual(regions.board.bottom);
+  });
+
+  it('vertically centers the tile bounding box inside the preparation table', () => {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const span = computeTableSpan(regions);
+    const b = tileBounds();
+    const spaceAbove = b.top - span.top; // ~76.8
+    const spaceBelow = span.bottom - b.bottom; // ~76
+    // Equal within a single pixel of ORIGIN_Y rounding.
+    expect(Math.abs(spaceAbove - spaceBelow)).toBeLessThanOrEqual(1);
   });
 
   it('keeps the tile bounding box centered on the canvas width', () => {

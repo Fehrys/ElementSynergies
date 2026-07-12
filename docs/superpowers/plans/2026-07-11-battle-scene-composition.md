@@ -990,6 +990,85 @@ Do not proceed until every box is checked.
 
 ---
 
+# MILESTONE B5 — Table, brigade, puzzle, and boss-HUD integration
+
+An isolated composition-refinement pass (single commit) correcting the imbalance seen in the
+Checkpoint B screenshot: the puzzle sat low in the table, the heroes barely touched it, the
+hidden hero labels were dead weight, and the left-aligned 300px HP bar pulled the top-left.
+All within the existing global constraints — no Milestone C work, no final art, no animation,
+no responsive scaling, no gameplay. `src/core/` stays untouched.
+
+### Task B5: refine table/brigade/puzzle/boss-HUD composition
+
+**Files:**
+- Modify: `src/scenes/compositionLayout.ts` — add `BossHudLayout`, `computeTableSpan()`,
+  `computeBossHudLayout()`; ground heroes on the table span; refactor `computeTableBounds()`
+  to reuse the span.
+- Modify: `src/scenes/boardLayout.ts` — re-derive `ORIGIN_Y` to center the tile bbox in the
+  table span.
+- Modify: `src/scenes/BattleScene.ts` — remove hero-name labels; drive `drawHp()` (and the
+  `hpText` origin/size) from `computeBossHudLayout()`.
+- Test: `tests/scenes/compositionLayout.test.ts`, `tests/scenes/boardLayout.test.ts`.
+
+**Interfaces:**
+- Produces: `computeTableSpan(regions) → { top, bottom }` (consumed by `computeTableBounds`,
+  `computePlaceholderLayout`, and `boardLayout`); `computeBossHudLayout(regions) →
+  { text: {x,y}, bar: Rect }`; `BossHudLayout`.
+
+**B5.1 — Center the puzzle in the table (`boardLayout.ts`):** derive
+`ORIGIN_Y = round(span.top + (span.bottom − span.top − BBOX_HEIGHT)/2 + STONE_RADIUS)` where
+`span = computeTableSpan(regions)`. Expected `ORIGIN_Y = 422`,
+`tileBounds() = {left 50, right 430, top 400, bottom 636}`. `ORIGIN_X`, `COL_WIDTH`,
+`ROW_HEIGHT`, `STONE_RADIUS`, and the table bounds are unchanged. Unit tests pin the new
+values and assert the tile bbox is centered in the span within 1px of rounding.
+
+**B5.2 — Ground the brigade (`compositionLayout.ts`):** `HERO_TABLE_OVERLAP = 8`;
+`heroBottom = computeTableSpan(regions).top + HERO_TABLE_OVERLAP` (→ 331.2), `heroY =
+heroBottom − HERO_HEIGHT`. Width/height/centers unchanged. Tests verify four heroes, unchanged
+centers/dims, and `h.y + h.height ≈ span.top + 8`.
+
+**B5.3 — Remove hero labels (`BattleScene.ts`):** delete the four hero-name `Text` objects
+from `drawCharacterPlaceholders()` (add only `[shadow, shape]`). Monster label stays. No
+replacements, no depth changes.
+
+**B5.4 — Center + shrink the boss HUD:** `computeBossHudLayout(regions)` returns text at the
+monster center-x with `y = topHud.top + 8` and a bar `{ x: centerX − barWidth/2, y:
+topHud.top + 36, width: monster.width + 60 (=240), height: 12 }`. `drawHp()` consumes it;
+`hpText` gets origin `(0.5, 0)` and ~18px. `hpBar`/`hpText` stay in `hudContainer`; the HP
+ratio math, `hpBar.clear()`, `drawHp()` call sites, and `data-monster-hp` are unchanged.
+Phaser-free tests pin the helper's output and that it stays inside `topHud` above the monster.
+
+- [ ] **Step 1: Edit `compositionLayout.ts`** (span + hero grounding + boss HUD, above).
+- [ ] **Step 2: Edit `boardLayout.ts`** (`ORIGIN_Y` from the span).
+- [ ] **Step 3: Edit `BattleScene.ts`** (drop hero labels; boss-HUD-driven `drawHp()`).
+- [ ] **Step 4: Update the two `tests/scenes/**` files** to the new pinned values + new tests.
+- [ ] **Step 5: Verify.** `npx tsc --noEmit` clean; `npm test` green (76);
+  `npx playwright test` green (9/9, `battle.spec.ts` + `canvas-bounds.spec.ts` unmodified);
+  `?seed=1` screenshot; debug API + table-persistence-after-`drawBoard()` spot check.
+- [ ] **Step 6: Commit** (single commit):
+
+```bash
+git add src/scenes/compositionLayout.ts src/scenes/boardLayout.ts src/scenes/BattleScene.ts \
+  tests/scenes/compositionLayout.test.ts tests/scenes/boardLayout.test.ts \
+  docs/superpowers/plans/2026-07-11-battle-scene-composition.md \
+  docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md
+git commit -m "fix: refine battle table, brigade, puzzle, and boss HUD composition"
+```
+
+## ✅ CHECKPOINT B5
+
+- [ ] `tsc` clean; `npm test` green; `npx playwright test` green (9/9); canvas-bounds still
+      exactly `x0 y0 480×720`; `battle.spec.ts` unmodified.
+- [ ] `?seed=1`: puzzle vertically centered in the table (≈equal space above/below); heroes
+      overlap the table rear edge and the lip masks their lower silhouettes; no hero labels;
+      boss HP text + bar centered above the monster and visibly narrower; monster still
+      dominant; a chain still drags/resolves; table survives `drawBoard()`; `?debug=1` API
+      intact; `?seed=1` board contents unchanged from before B5.
+
+Do not proceed to Milestone C until Checkpoint B5 is reviewed and approved.
+
+---
+
 # MILESTONE C — Panel-chrome removal + minimal environment/HUD placeholders
 
 Remove the generic flat-panel look and add minimal background/environment placeholders and

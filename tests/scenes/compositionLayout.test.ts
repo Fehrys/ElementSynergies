@@ -3,6 +3,8 @@ import {
   computeLayoutRegions,
   computePlaceholderLayout,
   computeTableBounds,
+  computeTableSpan,
+  computeBossHudLayout,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   Band,
@@ -72,14 +74,50 @@ describe('computePlaceholderLayout', () => {
     p.heroes.forEach((h) => {
       expect(h.width).toBe(50);
       expect(h.height).toBe(70);
-      expect(h.y + h.height / 2).toBeCloseTo(288, 5);
     });
+  });
+
+  it('grounds each hero so its lower edge overlaps the table rear edge by ~8px', () => {
+    const tableTop = computeTableSpan(computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
+    expect(tableTop).toBeCloseTo(323.2, 5);
+    p.heroes.forEach((h) => {
+      expect(h.y + h.height).toBeCloseTo(tableTop + 8, 5); // 331.2
+    });
+  });
+});
+
+describe('computeBossHudLayout', () => {
+  const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const hud = computeBossHudLayout(regions);
+
+  it('centers the boss HP text above the monster', () => {
+    const monster = computePlaceholderLayout(regions).monster;
+    expect(hud.text.x).toBeCloseTo(monster.x + monster.width / 2, 5); // 240
+    expect(hud.text.x).toBeCloseTo(240, 5);
+    expect(hud.text.y).toBeCloseTo(8, 5);
+  });
+
+  it('derives a centered bar from the monster footprint (monster.width + 60)', () => {
+    const monster = computePlaceholderLayout(regions).monster;
+    expect(hud.bar.width).toBeCloseTo(monster.width + 60, 5); // 240
+    expect(hud.bar.height).toBe(12);
+    expect(hud.bar.x).toBeCloseTo(120, 5);
+    expect(hud.bar.y).toBeCloseTo(36, 5);
+    // Bar is centered on the same axis as the text.
+    expect(hud.bar.x + hud.bar.width / 2).toBeCloseTo(hud.text.x, 5);
+  });
+
+  it('keeps the HP presentation inside the topHud band with room before the monster', () => {
+    const barBottom = hud.bar.y + hud.bar.height;
+    expect(barBottom).toBeLessThanOrEqual(regions.topHud.bottom);
+    expect(barBottom).toBeLessThan(computePlaceholderLayout(regions).monster.y);
   });
 });
 
 describe('computeTableBounds', () => {
   const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-  const tileBounds = { left: 50, right: 430, top: 426, bottom: 662 };
+  // Tiles are now centered in the table span: bbox top 400, bottom 636.
+  const tileBounds = { left: 50, right: 430, top: 400, bottom: 636 };
   const table = computeTableBounds(regions, tileBounds);
 
   it('produces the expected connecting-surface bounds for 480x720', () => {
