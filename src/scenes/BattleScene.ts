@@ -76,6 +76,7 @@ export class BattleScene extends Phaser.Scene {
   private path: CellCoord[] = [];
   private dragging = false;
   private backgroundContainer!: Phaser.GameObjects.Container;
+  private environmentContainer!: Phaser.GameObjects.Container;
   private monsterContainer!: Phaser.GameObjects.Container;
   private heroContainer!: Phaser.GameObjects.Container;
   private tableContainer!: Phaser.GameObjects.Container;
@@ -131,6 +132,7 @@ export class BattleScene extends Phaser.Scene {
     // Semantic containers, all at (0,0) scale 1 so absolute cellToPixel
     // coordinates render 1:1 in stage space (never reposition via transforms).
     this.backgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
+    this.environmentContainer = this.add.container(0, 0).setDepth(DEPTH.ENVIRONMENT);
     this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
     this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
     this.tableContainer = this.add.container(0, 0).setDepth(DEPTH.TABLE);
@@ -148,6 +150,7 @@ export class BattleScene extends Phaser.Scene {
     this.hudContainer.add([this.hpBar, this.hpText]);
 
     this.drawBackground();
+    this.drawEnvironment();
     this.drawTable();
     this.drawBoard();
     this.drawHp();
@@ -338,6 +341,31 @@ export class BattleScene extends Phaser.Scene {
     g.fillStyle(upper, 0.2);
     g.fillRect(0, horizonY, CANVAS_WIDTH, 50);
     this.backgroundContainer.add(g);
+  }
+
+  // Minimal, persistent environmental framing placeholder (stand-in for future
+  // props). Controlled asymmetry — a heavier cupboard silhouette on the left, a
+  // lighter set of hanging cookware on the right, and one off-center alcove arch
+  // behind the boss — so it frames the monster instead of reading as a symmetric
+  // dashboard. Flat Graphics only, non-interactive, all kept at y < 260 so no
+  // prop touches the tile bounds. Drawn ONCE; never touched by drawBoard().
+  private drawEnvironment(): void {
+    const g = this.add.graphics();
+    // Off-center alcove arch behind the monster (slightly lighter than the wall).
+    g.fillStyle(0x2f2950, 1);
+    g.fillEllipse(230, 70, 300, 220);
+    // Left: a heavier cupboard/shelf silhouette.
+    g.fillStyle(0x231c14, 1);
+    g.fillRoundedRect(4, 84, 66, 168, 10);
+    g.fillStyle(0x2c2318, 1);
+    g.fillRect(10, 150, 54, 8); // one shelf line
+    // Right: lighter hanging cookware — deliberately NOT a mirror of the left.
+    g.fillStyle(0x241d16, 1);
+    g.fillRect(436, 56, 6, 86); // hanging rod
+    g.fillCircle(439, 150, 15); // a pan/ladle head
+    g.fillRect(452, 56, 6, 60); // second, shorter rod
+    g.fillRoundedRect(447, 116, 26, 16, 4); // a small hanging lantern/box
+    this.environmentContainer.add(g);
   }
 
   // Persistent preparation-table surface, drawn ONCE in create(). Lives in
