@@ -1,7 +1,7 @@
 # ElementSynergies
 Legacy of spirit stones
 
-A vertical-slice prototype of a free-form, same-color chain-connect puzzle (inspired by the mobile game *Spirit Stones*) wired to minimal RPG combat: drag chains of hex-adjacent same-color stones to damage a monster. Built with Phaser 3, TypeScript, and Vite.
+A vertical-slice prototype of a free-form, same-color chain-connect puzzle (inspired by the mobile game *Spirit Stones*) wired to minimal RPG combat: drag chains of hex-adjacent same-color stones to damage a monster. Built with Phaser 4, TypeScript, and Vite.
 
 See `docs/superpowers/specs/2026-07-05-spirit-stones-puzzle-design.md` for the full design spec.
 

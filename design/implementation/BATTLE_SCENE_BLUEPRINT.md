@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document translates the combat art target into a scene structure that can be implemented in Phaser 3.
+This document translates the combat art target into a scene structure that can be implemented in Phaser 4.
 
 It defines:
 

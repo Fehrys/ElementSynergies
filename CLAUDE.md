@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A vertical-slice prototype of a free-form, same-color chain-connect puzzle (from the mobile game *Spirit Stones*) wired to a minimal RPG combat outcome: drag chains of hex-adjacent same-color stones to damage a monster. Built with Phaser 3 + TypeScript + Vite. See `docs/superpowers/specs/2026-07-05-spirit-stones-puzzle-design.md` for the full design spec (mechanics, special tiles, rejected ideas).
+A vertical-slice prototype of a free-form, same-color chain-connect puzzle (from the mobile game *Spirit Stones*) wired to a minimal RPG combat outcome: drag chains of hex-adjacent same-color stones to damage a monster. Built with Phaser 4 + TypeScript + Vite. See `docs/superpowers/specs/2026-07-05-spirit-stones-puzzle-design.md` for the full design spec (mechanics, special tiles, rejected ideas).
 
 ## Commands
 
