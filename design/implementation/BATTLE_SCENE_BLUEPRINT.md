@@ -340,6 +340,15 @@ The art must adapt to the engine, not the opposite.
 
 # Responsive Layout Rules
 
+## Release requirement
+
+The fixed 480x720 canvas is a temporary reference baseline for composition
+migration and test stability. It is not the release layout.
+
+Before final-art integration, the battle scene must support responsive portrait
+mobile viewports, safe areas, variable aspect ratios, and accurate pointer
+mapping across all supported resolutions.
+
 ## Width
 
 The board should normally use at least 88% of the available safe width.

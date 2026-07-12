@@ -12,11 +12,19 @@ import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn, ResolutionResult } from '../core/resolution';
-import { cellToPixel } from './boardLayout';
+import { cellToPixel, STONE_RADIUS, tileBounds } from './boardLayout';
+import {
+  computeLayoutRegions,
+  computePlaceholderLayout,
+  computeTableBounds,
+  computeTableSpan,
+  computeBossHudLayout,
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+} from './compositionLayout';
+import { DEPTH } from './depth';
 
-export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, cellToPixel } from './boardLayout';
-
-const STONE_RADIUS = 22;
+export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, STONE_RADIUS, cellToPixel } from './boardLayout';
 
 const COLOR_HEX: Record<ElementColor, number> = {
   red: 0xe74c3c,
@@ -68,7 +76,15 @@ export class BattleScene extends Phaser.Scene {
   private monster!: Monster;
   private path: CellCoord[] = [];
   private dragging = false;
+  private backgroundContainer!: Phaser.GameObjects.Container;
+  private environmentContainer!: Phaser.GameObjects.Container;
+  private monsterContainer!: Phaser.GameObjects.Container;
+  private heroContainer!: Phaser.GameObjects.Container;
+  private tableContainer!: Phaser.GameObjects.Container;
   private boardLayer!: Phaser.GameObjects.Container;
+  private puzzleFeedbackContainer!: Phaser.GameObjects.Container;
+  private hudContainer!: Phaser.GameObjects.Container;
+  private transientUiContainer!: Phaser.GameObjects.Container;
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
@@ -114,14 +130,32 @@ export class BattleScene extends Phaser.Scene {
     fillBoard(this.grid, this.rng);
     this.monster = createMonster('Frost Yeti', 1000);
 
-    this.boardLayer = this.add.container(0, 0);
-    this.traceGraphics = this.add.graphics();
-    this.hpText = this.add.text(20, 20, '', { fontSize: '20px', color: '#ffffff' });
-    this.hpBar = this.add.graphics();
+    // Semantic containers, all at (0,0) scale 1 so absolute cellToPixel
+    // coordinates render 1:1 in stage space (never reposition via transforms).
+    this.backgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
+    this.environmentContainer = this.add.container(0, 0).setDepth(DEPTH.ENVIRONMENT);
+    this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
+    this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
+    this.tableContainer = this.add.container(0, 0).setDepth(DEPTH.TABLE);
+    this.boardLayer = this.add.container(0, 0).setDepth(DEPTH.BOARD);
+    this.puzzleFeedbackContainer = this.add.container(0, 0).setDepth(DEPTH.PUZZLE_FEEDBACK);
+    this.hudContainer = this.add.container(0, 0).setDepth(DEPTH.HUD);
+    this.transientUiContainer = this.add.container(0, 0).setDepth(DEPTH.TRANSIENT_UI);
 
+    this.traceGraphics = this.add.graphics();
+    this.puzzleFeedbackContainer.add(this.traceGraphics);
+    // Centered above the monster (origin 0.5,0); exact position is set from the
+    // composition layout in drawHp().
+    this.hpText = this.add.text(0, 0, '', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5, 0);
+    this.hpBar = this.add.graphics();
+    this.hudContainer.add([this.hpBar, this.hpText]);
+
+    this.drawBackground();
+    this.drawEnvironment();
+    this.drawTable();
     this.drawBoard();
     this.drawHp();
-    this.drawBattleLineup();
+    this.drawCharacterPlaceholders();
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
@@ -222,7 +256,15 @@ export class BattleScene extends Phaser.Scene {
   // exactly one defeat-check code path.
   private checkVictory(): void {
     if (isDefeated(this.monster)) {
-      this.add.text(140, 400, 'Victory!', { fontSize: '32px', color: '#ffffff' });
+      const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+      // Centered on the canvas, at the vertical center of the battle→table
+      // transition (table rear edge → tile top), so the banner reads over both
+      // the scene background and the table surface.
+      const y = (computeTableSpan(regions).top + tileBounds().top) / 2;
+      const victoryText = this.add
+        .text(CANVAS_WIDTH / 2, y, 'Victory!', { fontSize: '32px', color: '#ffffff' })
+        .setOrigin(0.5, 0.5);
+      this.transientUiContainer.add(victoryText);
       document.body.setAttribute('data-scene', 'victory');
     }
   }
@@ -278,49 +320,135 @@ export class BattleScene extends Phaser.Scene {
     this.traceGraphics.strokePath();
   }
 
+  // Persistent full-canvas background placeholder (stand-in for a future
+  // battle_background_* asset), replacing the flat Phaser config color. Two
+  // broad value zones — a darker upper arena wall and a slightly warmer/deeper
+  // lower work area behind the table — meet on a soft curved horizon (a wide
+  // overlapping ellipse plus low-alpha feather bands) rather than a hard,
+  // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
+  private drawBackground(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const g = this.add.graphics();
+    const upper = 0x262042; // darker arena wall
+    const lower = 0x2e2636; // slightly warmer/deeper work area behind the table
+    // Base value covers the whole canvas.
+    g.fillStyle(upper, 1);
+    g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // Lower work area; its top is softened into a curved horizon by a wide
+    // ellipse that overlaps upward, so the two zones never meet on a straight line.
+    const horizonY = regions.hero.top; // behind/above the table rear edge
+    g.fillStyle(lower, 1);
+    g.fillRect(0, horizonY, CANVAS_WIDTH, CANVAS_HEIGHT - horizonY);
+    g.fillEllipse(CANVAS_WIDTH / 2, horizonY, CANVAS_WIDTH * 1.5, 150);
+    // Low-alpha bands feather the meeting of the two zones (no UI divider).
+    g.fillStyle(lower, 0.3);
+    g.fillRect(0, horizonY - 70, CANVAS_WIDTH, 70);
+    g.fillStyle(upper, 0.2);
+    g.fillRect(0, horizonY, CANVAS_WIDTH, 50);
+    this.backgroundContainer.add(g);
+  }
+
+  // Minimal, persistent environmental framing placeholder (stand-in for future
+  // props). Controlled asymmetry — a heavier cupboard silhouette on the left, a
+  // lighter set of hanging cookware on the right, and one off-center alcove arch
+  // behind the boss — so it frames the monster instead of reading as a symmetric
+  // dashboard. Flat Graphics only, non-interactive, all kept at y < 260 so no
+  // prop touches the tile bounds. Drawn ONCE; never touched by drawBoard().
+  private drawEnvironment(): void {
+    const g = this.add.graphics();
+    // Off-center alcove arch behind the monster (slightly lighter than the wall).
+    g.fillStyle(0x2f2950, 1);
+    g.fillEllipse(230, 70, 300, 220);
+    // Left: a heavier cupboard/shelf silhouette.
+    g.fillStyle(0x231c14, 1);
+    g.fillRoundedRect(4, 84, 66, 168, 10);
+    g.fillStyle(0x2c2318, 1);
+    g.fillRect(10, 150, 54, 8); // one shelf line
+    // Right: lighter hanging cookware — deliberately NOT a mirror of the left.
+    g.fillStyle(0x241d16, 1);
+    g.fillRect(436, 56, 6, 86); // hanging rod
+    g.fillCircle(439, 150, 15); // a pan/ladle head
+    g.fillRect(452, 56, 6, 60); // second, shorter rod
+    g.fillRoundedRect(447, 116, 26, 16, 4); // a small hanging lantern/box
+    this.environmentContainer.add(g);
+  }
+
+  // Persistent preparation-table surface, drawn ONCE in create(). Lives in
+  // its own container below the tile layer; drawBoard() never touches it, so
+  // rebuilding tiles can never destroy the table (a persistent layer). The
+  // footprint is derived from the real tile bounds — the art fits the engine,
+  // not the reverse.
+  private drawTable(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const t = computeTableBounds(regions, tileBounds());
+    const g = this.add.graphics();
+    g.fillStyle(0x6b4a30, 1);
+    g.fillRoundedRect(t.x, t.y, t.width, t.height, 24);
+    // A slightly darker rear-edge band to hint thickness/depth — still flat,
+    // no gradient/asset.
+    g.fillStyle(0x543a25, 1);
+    g.fillRoundedRect(t.x, t.y, t.width, 18, 9);
+    this.tableContainer.add(g);
+  }
+
   // Redraws the HP text/bar and mirrors the current HP into a DOM
   // attribute so the Playwright e2e test can read it without parsing canvas.
   private drawHp(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const hud = computeBossHudLayout(regions);
+    const bar = hud.bar;
+
     this.hpText.setText(`${this.monster.name}: ${this.monster.hp}/${this.monster.maxHp}`);
+    this.hpText.setPosition(hud.text.x, hud.text.y);
     this.hpBar.clear();
     this.hpBar.fillStyle(0x333333, 1);
-    this.hpBar.fillRect(20, 50, 300, 16);
+    this.hpBar.fillRect(bar.x, bar.y, bar.width, bar.height);
     this.hpBar.fillStyle(0xdd3333, 1);
     const ratio = this.monster.hp / this.monster.maxHp;
-    this.hpBar.fillRect(20, 50, 300 * ratio, 16);
+    this.hpBar.fillRect(bar.x, bar.y, bar.width * ratio, bar.height);
     document.body.setAttribute('data-monster-hp', String(this.monster.hp));
   }
 
-  // Static wireframe placeholder for the 4-character roster vs. the
-  // monster, filling the band between the HP bar and the grid (y ~100-454).
-  // Drawn once in create() since only HP changes turn-to-turn — that's
-  // handled separately by drawHp() — not the roster/monster identity.
-  private drawBattleLineup(): void {
-    const graphics = this.add.graphics();
+  // Flat production-footprint placeholders for the monster and the 4-hero
+  // brigade, positioned from the composition layout — replaces the old
+  // rectangle-card lineup. Drawn once in create(): only HP changes
+  // turn-to-turn (handled by drawHp()); identity does not. Shapes are flat
+  // (no assets), but their bounds, anchors, shadows, and overlap already
+  // match the intended final footprints. See
+  // docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md.
+  private drawCharacterPlaceholders(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const layout = computePlaceholderLayout(regions);
 
+    // Monster: dominant silhouette + contact shadow, centered in the monster band.
+    const m = layout.monster;
+    const mCenterX = m.x + m.width / 2;
+    const mShadow = this.add.graphics();
+    mShadow.fillStyle(0x000000, 0.25);
+    mShadow.fillEllipse(mCenterX, m.y + m.height - 6, m.width * 0.7, 24);
+    const mShape = this.add.graphics();
+    mShape.fillStyle(0x7a4fb5, 1);
+    mShape.fillRoundedRect(m.x, m.y, m.width, m.height, 28);
+    // No internal name label: the boss name lives in the centered HP HUD, and a
+    // label inside the shape made the silhouette read as a UI button.
+    this.monsterContainer.add([mShadow, mShape]);
+
+    // Heroes: one flat capsule per roster entry, evenly spaced across the
+    // board width band (bottom-center anchored so future sprites can share
+    // the footprint), each with a small contact shadow. Their lower edge sinks
+    // behind the table's rear edge (grounded by the layout), so the table lip
+    // masks the bottom few pixels. No name labels: the previous ones sat behind
+    // the table and were never visible.
     ROSTER.forEach((character, i) => {
-      const x = 40;
-      const y = 147 + i * 70;
-      const width = 100;
-      const height = 50;
-      graphics.fillStyle(COLOR_HEX[character.color], 1);
-      graphics.fillRect(x, y, width, height);
-      this.add
-        .text(x + width / 2, y + height / 2, character.name, { fontSize: '14px', color: '#000000' })
-        .setOrigin(0.5, 0.5);
+      const h = layout.heroes[i];
+      const cx = h.x + h.width / 2;
+      const shadow = this.add.graphics();
+      shadow.fillStyle(0x000000, 0.25);
+      shadow.fillEllipse(cx, h.y + h.height - 2, h.width * 0.8, 12);
+      const shape = this.add.graphics();
+      shape.fillStyle(COLOR_HEX[character.color], 1);
+      shape.fillRoundedRect(h.x, h.y, h.width, h.height, 16);
+      this.heroContainer.add([shadow, shape]);
     });
-
-    const monsterX = 280;
-    const monsterY = 177;
-    const monsterWidth = 160;
-    const monsterHeight = 200;
-    graphics.lineStyle(2, 0xffffff, 1);
-    graphics.strokeRect(monsterX, monsterY, monsterWidth, monsterHeight);
-    this.add
-      .text(monsterX + monsterWidth / 2, monsterY + monsterHeight / 2, this.monster.name, {
-        fontSize: '14px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5, 0.5);
   }
 }
