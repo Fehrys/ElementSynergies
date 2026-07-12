@@ -17,6 +17,7 @@ import {
   computeLayoutRegions,
   computePlaceholderLayout,
   computeTableBounds,
+  computeTableSpan,
   computeBossHudLayout,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -255,10 +256,14 @@ export class BattleScene extends Phaser.Scene {
   // exactly one defeat-check code path.
   private checkVictory(): void {
     if (isDefeated(this.monster)) {
-      const victoryText = this.add.text(140, 400, 'Victory!', {
-        fontSize: '32px',
-        color: '#ffffff',
-      });
+      const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+      // Centered on the canvas, at the vertical center of the battle→table
+      // transition (table rear edge → tile top), so the banner reads over both
+      // the scene background and the table surface.
+      const y = (computeTableSpan(regions).top + tileBounds().top) / 2;
+      const victoryText = this.add
+        .text(CANVAS_WIDTH / 2, y, 'Victory!', { fontSize: '32px', color: '#ffffff' })
+        .setOrigin(0.5, 0.5);
       this.transientUiContainer.add(victoryText);
       document.body.setAttribute('data-scene', 'victory');
     }
@@ -424,13 +429,9 @@ export class BattleScene extends Phaser.Scene {
     const mShape = this.add.graphics();
     mShape.fillStyle(0x7a4fb5, 1);
     mShape.fillRoundedRect(m.x, m.y, m.width, m.height, 28);
-    const mLabel = this.add
-      .text(mCenterX, m.y + m.height / 2, this.monster.name, {
-        fontSize: '16px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5, 0.5);
-    this.monsterContainer.add([mShadow, mShape, mLabel]);
+    // No internal name label: the boss name lives in the centered HP HUD, and a
+    // label inside the shape made the silhouette read as a UI button.
+    this.monsterContainer.add([mShadow, mShape]);
 
     // Heroes: one flat capsule per roster entry, evenly spaced across the
     // board width band (bottom-center anchored so future sprites can share
