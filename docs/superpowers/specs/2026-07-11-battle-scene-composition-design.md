@@ -138,6 +138,29 @@ supersedes several derived values above:
   band, replacing the old left-aligned `x 20 / width 300` bar. `data-monster-hp`, the HP
   ratio math, and `drawHp()`'s lifecycle are unchanged.
 
+### Milestone C amendment — scene framing, not a region-anchored HUD
+
+Milestone C makes the placeholders read as one continuous scene. It **supersedes the
+boss-HUD portion of the original Task C3**: the B5 boss HUD is frozen (centered text `x 240`
+origin `(0.5, 0)` ~18px; bar `x 120 / width 240 / height 12`; unchanged ratio math,
+`drawHp()` lifecycle, and `data-monster-hp`), and `drawHp()` is **not** re-anchored to the
+board width. C now delivers only:
+
+- **C1** — a persistent full-canvas `backgroundContainer` (`DEPTH.BACKGROUND`): two broad
+  value zones (darker upper arena wall, deeper lower work area) meeting on a soft curved
+  horizon (overlapping ellipse + low-alpha bands), no hard divider. Drops the Phaser config
+  `backgroundColor` once the placeholder covers the canvas.
+- **C2** — a persistent `environmentContainer` (`DEPTH.ENVIRONMENT`): a few asymmetric flat
+  silhouettes framing the boss (heavier left cupboard, lighter right hangings, off-center
+  arch), all `y < 260` and clear of the tile bounds, non-interactive.
+- **C3** — removes the internal monster-name label (the boss name lives in the HP HUD) and
+  recenters the victory text on the canvas at the battle→table transition
+  (`(computeTableSpan.top + tileBounds.top)/2`), origin `(0.5, 0.5)`; `data-scene="victory"`
+  and `checkVictory()` lifecycle unchanged.
+
+Still no assets, atlases, particles, animation, detailed decoration, responsive scaling, or
+gameplay.
+
 ## Testing strategy
 
 - **Automated (vitest, Phaser-free):** `compositionLayout` region/placeholder/table math
@@ -158,3 +181,5 @@ supersedes several derived values above:
 - New gameplay, combat, or puzzle rules.
 - Debug-overlay *rendering* (the debug *API* and DOM mirrors are preserved unchanged; no
   new debug visuals are added).
+- Responsive scaling is out of scope for this milestone only. It remains a
+mandatory requirement before final-art integration and release.

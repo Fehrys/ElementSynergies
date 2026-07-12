@@ -1069,242 +1069,223 @@ Do not proceed to Milestone C until Checkpoint B5 is reviewed and approved.
 
 ---
 
-# MILESTONE C — Panel-chrome removal + minimal environment/HUD placeholders
+# MILESTONE C — Minimal scene framing and chrome removal
 
-Remove the generic flat-panel look and add minimal background/environment placeholders and
-a region-anchored HUD, completing the "not a stack of mobile-app cards" acceptance
-criterion.
+Make the placeholder composition read as **one continuous scene** rather than isolated flat
+elements: a persistent full-canvas background (C1), a few asymmetrical environment framing
+silhouettes (C2), and chrome cleanup + a recentered victory banner (C3). Still not
+art-production — primitive Phaser `Graphics` only; no assets, atlases, particles, animation,
+detailed decoration, responsive scaling, or gameplay.
+
+> **Supersession:** Milestone B5 already delivered the boss HUD. This milestone **must not**
+> revert it. The original Task C3 "region-anchored / board-width HP bar" proposal is
+> **cancelled**. The B5 boss HUD is frozen: centered text at `x=240`, origin `(0.5, 0)`,
+> ~18px; bar `x=120 / width=240 / height=12`; unchanged HP-ratio math, `drawHp()` lifecycle,
+> and `data-monster-hp` updates. C3 only removes obsolete chrome and recenters victory.
 
 ---
 
-### Task C1: Background placeholder + drop the flat config color
+### Task C1: Persistent background placeholder
 
 **Files:**
 - Modify: `src/scenes/BattleScene.ts` (new `backgroundContainer` field, `create()`, new
   `drawBackground()` method)
-- Modify: `src/main.ts` (remove `backgroundColor`)
+- Modify: `src/main.ts` (remove `backgroundColor` — only after the placeholder covers the
+  full canvas)
 
 **Interfaces:**
 - Consumes: `computeLayoutRegions`, `CANVAS_WIDTH`, `CANVAS_HEIGHT`; `DEPTH`.
-- Produces: `backgroundContainer` (`DEPTH.BACKGROUND`), populated once by
-  `drawBackground()`. Persistent — never touched by `drawBoard()`.
+- Produces: `backgroundContainer` (`DEPTH.BACKGROUND`, lowest), populated once by
+  `drawBackground()`. Persistent — never touched by `drawBoard()`, non-interactive.
 
-- [ ] **Step 1: Add the field and create the container first in `create()`**
+Two broad depth zones — a darker upper arena wall and a slightly deeper lower work area
+behind the table — meeting on a **soft, curved horizon** (a wide overlapping ellipse plus
+low-alpha transition bands), **not** a sharp UI-like divider. Full-canvas coverage; low
+detail behind the puzzle; enough contrast behind boss/heroes.
 
-Add field `private backgroundContainer!: Phaser.GameObjects.Container;` and, at the **top**
-of the container-creation block (so it is the lowest child), add:
+- [ ] **Step 1: Add the field; create the container first in `create()`**
 
-```ts
-    this.backgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
-```
-
-Call `this.drawBackground();` before `this.drawTable();`.
+Field `private backgroundContainer!: Phaser.GameObjects.Container;`; add at the **top** of
+the container block: `this.backgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);`
+Call `this.drawBackground();` first, before `this.drawTable();`.
 
 - [ ] **Step 2: Write `drawBackground()`**
 
 ```ts
-  // Persistent two-tone flat background placeholder (stand-in for the future
-  // battle_background_* asset stack), replacing the flat Phaser config color.
-  // Covers the full canvas; never touched by drawBoard().
+  // Persistent full-canvas background placeholder (stand-in for a future
+  // battle_background_* asset). Two broad value zones meeting on a soft curved
+  // horizon — no hard divider. Never touched by drawBoard(); non-interactive.
   private drawBackground(): void {
     const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const horizonY = regions.monster.top + regions.monster.height * 0.6;
     const g = this.add.graphics();
-    g.fillStyle(0x2a2440, 1); // upper: dungeon wall
-    g.fillRect(0, 0, CANVAS_WIDTH, horizonY);
-    g.fillStyle(0x1b1b2f, 1); // lower: shadowed floor (matches the old config color)
+    const upper = 0x262042; // darker arena wall
+    const lower = 0x2e2636; // slightly warmer/deeper work area behind the table
+    g.fillStyle(upper, 1);
+    g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // base value covers everything
+    const horizonY = regions.hero.top; // behind/above the table rear edge
+    g.fillStyle(lower, 1);
     g.fillRect(0, horizonY, CANVAS_WIDTH, CANVAS_HEIGHT - horizonY);
+    // A wide ellipse overlapping upward turns the seam into a curved horizon.
+    g.fillEllipse(CANVAS_WIDTH / 2, horizonY, CANVAS_WIDTH * 1.5, 150);
+    // Low-alpha bands feather the meeting of the two zones (no UI divider).
+    g.fillStyle(lower, 0.3);
+    g.fillRect(0, horizonY - 70, CANVAS_WIDTH, 70);
+    g.fillStyle(upper, 0.2);
+    g.fillRect(0, horizonY, CANVAS_WIDTH, 50);
     this.backgroundContainer.add(g);
   }
 ```
 
 - [ ] **Step 3: Remove the flat color from `src/main.ts`**
 
-Delete the `backgroundColor: '#1b1b2f',` line. The config becomes:
+Delete `backgroundColor: '#1b1b2f',` (the canvas is now fully covered by the placeholder).
 
-```ts
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
-  width: 480,
-  height: 720,
-  parent: 'app',
-  scene: [BattleScene],
-};
-```
+- [ ] **Step 4: `npx tsc --noEmit` clean; `npm test` green; `npx playwright test` green (9/9).**
 
-- [ ] **Step 4: Type-check, unit, e2e**
-
-Run: `npx tsc --noEmit` → no errors.
-Run: `npm test` → PASS.
-Run: `npm run test:e2e` → PASS (8/8).
-
-- [ ] **Step 5: Manual check**
-
-`http://localhost:5173/?seed=1`: the flat single-color canvas is replaced by a two-tone
-background; monster/heroes/table/board all still read clearly.
+- [ ] **Step 5: Manual check** — `?seed=1`: full-canvas two-zone background with a soft
+      horizon; boss/heroes/table/board all still read; no hard divider line.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/scenes/BattleScene.ts src/main.ts
-git commit -m "feat: add background placeholder and drop flat config background color"
+git add src/scenes/BattleScene.ts src/main.ts \
+  docs/superpowers/plans/2026-07-11-battle-scene-composition.md \
+  docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md
+git commit -m "feat: add persistent battle background placeholder"
 ```
 
 ---
 
-### Task C2: Minimal environment placeholder
+### Task C2: Minimal, asymmetrical environment framing
 
 **Files:**
 - Modify: `src/scenes/BattleScene.ts` (new `environmentContainer` field, `create()`, new
   `drawEnvironment()` method)
 
 **Interfaces:**
-- Consumes: `computeLayoutRegions`, `CANVAS_WIDTH`, `CANVAS_HEIGHT`; `DEPTH`.
+- Consumes: `CANVAS_WIDTH`; `DEPTH`.
 - Produces: `environmentContainer` (`DEPTH.ENVIRONMENT`, between background and monster),
-  populated once by `drawEnvironment()`. Persistent — never touched by `drawBoard()`, and
-  strictly non-interactive (Input Safety).
+  populated once by `drawEnvironment()`. Persistent, non-interactive (Input Safety).
 
-Keep this deliberately minimal — a couple of flat silhouettes to break the empty
-background, **not** a detailed scene. No prop may extend over the tile bounds.
+A few large flat silhouettes that **frame** the boss with **controlled asymmetry** — NOT
+four identical shelves (that would re-create a dashboard). One heavier cupboard on the left,
+lighter hanging cookware on the right, one off-center arch behind the monster. Every shape
+stays **behind** monster/heroes (lower depth) and **clear of the tile bounds**
+`{left 50, right 430, top 400, bottom 636}` — all props sit at `y < 260`, well above the
+tiles. Deliberately low shape count.
 
 - [ ] **Step 1: Add the field and container**
 
 Field `private environmentContainer!: Phaser.GameObjects.Container;`; in `create()`, after
-`backgroundContainer`:
-
-```ts
-    this.environmentContainer = this.add.container(0, 0).setDepth(DEPTH.ENVIRONMENT);
-```
-
+`backgroundContainer`: `this.environmentContainer = this.add.container(0, 0).setDepth(DEPTH.ENVIRONMENT);`
 Call `this.drawEnvironment();` after `this.drawBackground();`.
 
 - [ ] **Step 2: Write `drawEnvironment()`**
 
 ```ts
-  // Minimal, persistent environmental back-prop placeholders (two shelf
-  // silhouettes flanking the monster band). Flat shapes only, non-interactive,
-  // kept clear of the tile bounds. Stand-in for future environment assets.
+  // Minimal, persistent environmental framing (stand-in for future props).
+  // Controlled asymmetry — heavier left cupboard vs. lighter right hangings,
+  // plus an off-center arch behind the boss. Flat Graphics only, non-interactive,
+  // all above y=260 so nothing touches the tile bounds. Never touched by drawBoard().
   private drawEnvironment(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const shelfY = regions.monster.top + 12;
-    const shelfW = 70;
-    const shelfH = 14;
     const g = this.add.graphics();
-    g.fillStyle(0x3a2f22, 1);
-    g.fillRect(8, shelfY, shelfW, shelfH); // left shelf
-    g.fillRect(CANVAS_WIDTH - 8 - shelfW, shelfY, shelfW, shelfH); // right shelf
-    g.fillRect(8, shelfY + 40, shelfW, shelfH);
-    g.fillRect(CANVAS_WIDTH - 8 - shelfW, shelfY + 40, shelfW, shelfH);
+    // Off-center alcove arch behind the monster (slightly lighter than the wall).
+    g.fillStyle(0x2f2950, 1);
+    g.fillEllipse(230, 70, 300, 220);
+    // Left: a heavier cupboard/shelf silhouette.
+    g.fillStyle(0x231c14, 1);
+    g.fillRoundedRect(4, 84, 66, 168, 10);
+    g.fillStyle(0x2c2318, 1);
+    g.fillRect(10, 150, 54, 8); // one shelf line
+    // Right: lighter hanging cookware — deliberately NOT a mirror of the left.
+    g.fillStyle(0x241d16, 1);
+    g.fillRect(436, 56, 6, 86);      // hanging rod
+    g.fillCircle(439, 150, 15);      // a pan/ladle head
+    g.fillRect(452, 56, 6, 60);      // second, shorter rod
+    g.fillRoundedRect(447, 116, 26, 16, 4); // a small hanging lantern/box
     this.environmentContainer.add(g);
   }
 ```
 
-- [ ] **Step 3: Type-check, unit, e2e**
+- [ ] **Step 3: `npx tsc --noEmit` clean; `npm test` green; `npx playwright test` green (9/9)**
+      — confirms the props (plain `Graphics`, no `setInteractive`, above the board) don't
+      intercept pointer input.
 
-Run: `npx tsc --noEmit` → no errors.
-Run: `npm test` → PASS.
-Run: `npm run test:e2e` → PASS (8/8). Confirms the props don't intercept pointer input
-(they are plain `Graphics`, sit in the monster band well above the board, and have no
-`setInteractive`).
-
-- [ ] **Step 4: Manual check**
-
-`http://localhost:5173/?seed=1`: two flat shelf silhouettes flank the monster; none overlap
-any tile; the scene reads as a place rather than a flat panel.
+- [ ] **Step 4: Manual check** — `?seed=1`: framing is visibly asymmetric (heavier left,
+      lighter right, off-center arch); nothing overlaps a tile; the scene reads as a place.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/scenes/BattleScene.ts
-git commit -m "feat: add minimal environment back-prop placeholders"
+git commit -m "feat: add asymmetrical environment framing placeholders"
 ```
 
 ---
 
-### Task C3: Region-anchored HUD + victory reposition
+### Task C3: Remove placeholder chrome; recenter victory (B5 HUD frozen)
 
 **Files:**
-- Modify: `src/scenes/BattleScene.ts` (`drawHp()`, `checkVictory()`)
+- Modify: `src/scenes/BattleScene.ts` (`drawCharacterPlaceholders()`, `checkVictory()`)
 
 **Interfaces:**
-- Consumes: `computeLayoutRegions`, `CANVAS_WIDTH`, `CANVAS_HEIGHT` (already imported).
-- Produces: no new exports. `drawHp()` positions the HP text/bar in the `topHud` band at
-  the board's width; `checkVictory()` centers the victory text on the canvas. **DOM mirror
-  attributes (`data-monster-hp`, `data-scene`) are preserved and still set at the same
-  points.**
+- Consumes: `computeLayoutRegions`, `computeTableSpan`, `CANVAS_WIDTH`, `CANVAS_HEIGHT`,
+  `tileBounds` (all already imported).
+- Produces: no new exports. **`drawHp()` is NOT touched** (B5 boss HUD frozen).
+  `drawCharacterPlaceholders()` drops the internal monster-name label; `checkVictory()`
+  centers the victory text. `data-monster-hp` / `data-scene` preserved.
 
-- [ ] **Step 1: Reposition `drawHp()`**
+- [ ] **Step 1: Remove the internal monster-name label**
 
-Replace the body of `drawHp()`:
-
-```ts
-  private drawHp(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const left = regions.boardWidthBand.left;
-    const width = regions.boardWidthBand.width;
-
-    this.hpText.setText(`${this.monster.name}: ${this.monster.hp}/${this.monster.maxHp}`);
-    this.hpText.setPosition(left, 8);
-    this.hpBar.clear();
-    this.hpBar.fillStyle(0x333333, 1);
-    this.hpBar.fillRect(left, 34, width, 14);
-    this.hpBar.fillStyle(0xdd3333, 1);
-    const ratio = this.monster.hp / this.monster.maxHp;
-    this.hpBar.fillRect(left, 34, width * ratio, 14);
-    // Preserved DOM mirror for Playwright — same attribute, same call site.
-    document.body.setAttribute('data-monster-hp', String(this.monster.hp));
-  }
-```
+In `drawCharacterPlaceholders()`, delete the `mLabel` Text and add only `[mShadow, mShape]`
+to `monsterContainer` (the boss name still shows in the centered HP HUD). Do not add a
+replacement label.
 
 - [ ] **Step 2: Recenter the victory text in `checkVictory()`**
 
 ```ts
   private checkVictory(): void {
     if (isDefeated(this.monster)) {
+      const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+      // Vertical center of the battle→table transition (table rear edge → tile
+      // top), centered on the canvas, so the banner reads over both the scene
+      // background and the table surface.
+      const y = (computeTableSpan(regions).top + tileBounds().top) / 2;
       const victoryText = this.add
-        .text(CANVAS_WIDTH / 2, 360, 'Victory!', { fontSize: '32px', color: '#ffffff' })
+        .text(CANVAS_WIDTH / 2, y, 'Victory!', { fontSize: '32px', color: '#ffffff' })
         .setOrigin(0.5, 0.5);
       this.transientUiContainer.add(victoryText);
-      // Preserved DOM mirror for Playwright — same attribute value.
       document.body.setAttribute('data-scene', 'victory');
     }
   }
 ```
 
-- [ ] **Step 3: Type-check, unit, e2e**
+- [ ] **Step 3: `npx tsc --noEmit` clean; `npm test` green; `npx playwright test` green (9/9).**
+      The `data-monster-hp` / `data-scene="victory"` assertions confirm the DOM mirrors still
+      fire.
 
-Run: `npx tsc --noEmit` → no errors.
-Run: `npm test` → PASS.
-Run: `npm run test:e2e` → PASS (8/8). The `data-monster-hp` and `data-scene="victory"`
-assertions in the spec confirm the DOM mirrors still fire from their new call positions.
-
-- [ ] **Step 4: Manual check against acceptance criteria**
-
-`http://localhost:5173/?seed=1`, verify against
-`design/implementation/BATTLE_SCENE_BLUEPRINT.md` "Acceptance Criteria":
-
-- puzzle uses most of the width; real 7-column geometry intact;
-- monster visually dominant; four heroes inhabit the scene;
-- no decorative object obscures a selectable cell;
-- screen no longer resembles a stack of mobile UI cards;
-- HP bar sits in the top band tracking the board width (not a fixed 300px/x=20 bar);
-- `?debug=1` and `?seed=1` still work; a manual chain drag still scores/refills; victory
-  still triggers.
+- [ ] **Step 4: Manual check** — `?seed=1`: no internal monster-name label (name only in the
+      HP HUD); the boss reads as a silhouette, not a labeled button; B5 boss HUD unchanged;
+      `setMonsterHp(0)` → centered "Victory!" readable over table + background.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/scenes/BattleScene.ts
-git commit -m "feat: anchor HUD to composition regions and recenter victory text"
+git commit -m "fix: remove placeholder chrome and center victory presentation"
 ```
 
 ---
 
 ## ✅ CHECKPOINT C (final)
 
-- [ ] `npx tsc --noEmit` clean; `npm test` green; `npm run test:e2e` green (8/8, still
-      unmodified across the entire effort).
-- [ ] Every blueprint acceptance-criteria bullet (Task C3 Step 4) holds.
+- [ ] `npx tsc --noEmit` clean; `npm test` green; `npx playwright test` green (9/9;
+      `battle.spec.ts` + `canvas-bounds.spec.ts` unmodified); canvas box still `x0 y0 480×720`.
+- [ ] `?seed=1`: full-canvas background; asymmetric environment framing clear of all tiles;
+      no internal monster-name label; **B5 boss HUD unchanged** (centered, 240px bar);
+      centered "Victory!"; monster/heroes/table/puzzle read as one continuous scene; the
+      puzzle is the clearest interactive area.
+- [ ] Background + environment survive multiple `drawBoard()` rebuilds (persistent layers).
 - [ ] Debug API + DOM mirrors intact; seeded board (`?seed=1`) identical board contents to
       before the effort (only positions moved, via `ORIGIN_Y`).
 - [ ] No gameplay logic moved into `BattleScene`; `src/core/` untouched.

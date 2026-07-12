@@ -75,6 +75,7 @@ export class BattleScene extends Phaser.Scene {
   private monster!: Monster;
   private path: CellCoord[] = [];
   private dragging = false;
+  private backgroundContainer!: Phaser.GameObjects.Container;
   private monsterContainer!: Phaser.GameObjects.Container;
   private heroContainer!: Phaser.GameObjects.Container;
   private tableContainer!: Phaser.GameObjects.Container;
@@ -129,6 +130,7 @@ export class BattleScene extends Phaser.Scene {
 
     // Semantic containers, all at (0,0) scale 1 so absolute cellToPixel
     // coordinates render 1:1 in stage space (never reposition via transforms).
+    this.backgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
     this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
     this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
     this.tableContainer = this.add.container(0, 0).setDepth(DEPTH.TABLE);
@@ -145,6 +147,7 @@ export class BattleScene extends Phaser.Scene {
     this.hpBar = this.add.graphics();
     this.hudContainer.add([this.hpBar, this.hpText]);
 
+    this.drawBackground();
     this.drawTable();
     this.drawBoard();
     this.drawHp();
@@ -307,6 +310,34 @@ export class BattleScene extends Phaser.Scene {
       this.traceGraphics.lineTo(p.x, p.y);
     }
     this.traceGraphics.strokePath();
+  }
+
+  // Persistent full-canvas background placeholder (stand-in for a future
+  // battle_background_* asset), replacing the flat Phaser config color. Two
+  // broad value zones — a darker upper arena wall and a slightly warmer/deeper
+  // lower work area behind the table — meet on a soft curved horizon (a wide
+  // overlapping ellipse plus low-alpha feather bands) rather than a hard,
+  // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
+  private drawBackground(): void {
+    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const g = this.add.graphics();
+    const upper = 0x262042; // darker arena wall
+    const lower = 0x2e2636; // slightly warmer/deeper work area behind the table
+    // Base value covers the whole canvas.
+    g.fillStyle(upper, 1);
+    g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // Lower work area; its top is softened into a curved horizon by a wide
+    // ellipse that overlaps upward, so the two zones never meet on a straight line.
+    const horizonY = regions.hero.top; // behind/above the table rear edge
+    g.fillStyle(lower, 1);
+    g.fillRect(0, horizonY, CANVAS_WIDTH, CANVAS_HEIGHT - horizonY);
+    g.fillEllipse(CANVAS_WIDTH / 2, horizonY, CANVAS_WIDTH * 1.5, 150);
+    // Low-alpha bands feather the meeting of the two zones (no UI divider).
+    g.fillStyle(lower, 0.3);
+    g.fillRect(0, horizonY - 70, CANVAS_WIDTH, 70);
+    g.fillStyle(upper, 0.2);
+    g.fillRect(0, horizonY, CANVAS_WIDTH, 50);
+    this.backgroundContainer.add(g);
   }
 
   // Persistent preparation-table surface, drawn ONCE in create(). Lives in
