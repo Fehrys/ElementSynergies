@@ -52,6 +52,10 @@ export interface DebugApi {
   setMonsterHp(hp: number): void;
   getBattleLayout(): BattleLayout; // serializable copy of the active layout
   getLayoutRevision(): number; // increments once per applied reflow
+  forceReflow(partial?: Partial<ViewportInput>): void; // one-shot; consumed by the next reflow
+  getLayerObjectCounts(): Record<string, number>; // per-layer child counts — the idempotency probe
+  getSelectionLength(): number; // selected-cell count (0 after a mid-drag cancel)
+  getTracePointCount(): number; // drawn trace points (0 after a clear)
 }
 
 declare global {
@@ -86,6 +90,15 @@ export class BattleScene extends Phaser.Scene {
   // container stays at (0,0) scale 1 with no camera/Container transform.
   private activeLayout!: BattleLayout;
   private layoutRevision = 0;
+  // Reflow is deferred + coalesced to the next frame (update()): a burst of
+  // resize/forceReflow calls sets this flag at most once per frame.
+  private reflowScheduled = false;
+  // One-shot ?debug=1 viewport override (last-writer-wins), consumed + cleared by
+  // the very next reflow so it never pollutes a later real resize.
+  private pendingDebugInput?: ViewportInput;
+  // Scene-owned count of the trace geometry actually drawn (NOT a Phaser.Graphics
+  // internal), so a test can prove a mid-drag reflow cleared the trace.
+  private tracePointCount = 0;
 
   constructor() {
     super('battle');
@@ -130,6 +143,27 @@ export class BattleScene extends Phaser.Scene {
         },
         getBattleLayout: () => JSON.parse(JSON.stringify(this.activeLayout)),
         getLayoutRevision: () => this.layoutRevision,
+        forceReflow: (partial) => {
+          // One-shot, last-writer-wins: overwrites any un-consumed override, is
+          // consumed by the VERY NEXT reflow, and cleared there (see reflow()).
+          // With no argument it snapshots the real measured input, so it still
+          // exercises the real measure path.
+          this.pendingDebugInput = { ...this.buildViewportInput(), ...(partial ?? {}) };
+          this.scheduleReflow();
+        },
+        getLayerObjectCounts: () => ({
+          background: this.backgroundContainer.length,
+          environment: this.environmentContainer.length,
+          monster: this.monsterContainer.length,
+          hero: this.heroContainer.length,
+          table: this.tableContainer.length,
+          board: this.boardLayer.length,
+          puzzleFeedback: this.puzzleFeedbackContainer.length,
+          hud: this.hudContainer.length,
+          transientUi: this.transientUiContainer.length,
+        }),
+        getSelectionLength: () => this.path.length,
+        getTracePointCount: () => this.tracePointCount,
       };
     }
 
@@ -157,25 +191,75 @@ export class BattleScene extends Phaser.Scene {
     this.hpBar = this.add.graphics();
     this.hudContainer.add([this.hpBar, this.hpText]);
 
-    // Compute the layout once, before the first draw. Every draw method reads
-    // this.activeLayout; no draw recomputes geometry of its own.
-    this.activeLayout = computeBattleLayout(this.buildViewportInput(), DEFAULT_BATTLE_LAYOUT_POLICY);
+    // Containers are built once; every layer is (re)drawn idempotently through
+    // applyLayout, so a reflow recomputes + reapplies without duplicating or
+    // leaking objects. layoutRevision starts at 0 (no reflow applied yet).
     this.layoutRevision = 0;
+    this.applyLayout(computeBattleLayout(this.buildViewportInput(), DEFAULT_BATTLE_LAYOUT_POLICY));
 
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
+    this.input.on('pointerup', () => this.onPointerUp());
+
+    // Tear down listeners on scene shutdown/destroy. The Scale `resize` listener
+    // is registered into this same hook in M4; the input listeners are removed
+    // here now so the teardown path exists and is exercised from the start.
+    const teardown = (): void => {
+      this.input.off('pointerdown');
+      this.input.off('pointermove');
+      this.input.off('pointerup');
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, teardown);
+    this.events.once(Phaser.Scenes.Events.DESTROY, teardown);
+
+    // Lets Playwright wait for/assert on scene state via plain DOM reads,
+    // since Phaser renders to canvas and isn't otherwise inspectable.
+    document.body.setAttribute('data-scene', 'battle');
+  }
+
+  // Idempotent full redraw of every layer from the given layout. Each draw
+  // method clears its own container first, so applying a layout twice yields
+  // identical per-layer object counts (the reflow idempotency guarantee).
+  private applyLayout(layout: BattleLayout): void {
+    this.activeLayout = layout;
     this.drawBackground();
     this.drawEnvironment();
     this.drawTable();
     this.drawBoard();
     this.drawHp();
     this.drawCharacterPlaceholders();
+    this.drawTraceLine(); // keeps an in-progress trace consistent if not cancelled
+    if (isDefeated(this.monster)) this.checkVictory();
+  }
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
-    this.input.on('pointerup', () => this.onPointerUp());
+  // Collapses a burst of resize/forceReflow calls to a single applied reflow on
+  // the next frame (see update()). Never reflows synchronously inside a handler.
+  private scheduleReflow(): void {
+    this.reflowScheduled = true;
+  }
 
-    // Lets Playwright wait for/assert on scene state via plain DOM reads,
-    // since Phaser renders to canvas and isn't otherwise inspectable.
-    document.body.setAttribute('data-scene', 'battle');
+  // Phaser calls this every frame. The deferred reflow is applied here, exactly
+  // once per scheduled burst, with no tween.
+  update(): void {
+    if (!this.reflowScheduled) return;
+    this.reflowScheduled = false;
+    this.reflow();
+  }
+
+  // Recompute + apply the layout for the current (or one-shot overridden)
+  // viewport. A mid-drag reflow cancels the selection WITHOUT resolving a turn,
+  // and the reflow itself consumes no RNG and mutates no board state.
+  private reflow(): void {
+    if (this.dragging) {
+      this.dragging = false;
+      this.path = [];
+      this.traceGraphics.clear();
+      this.tracePointCount = 0;
+    }
+    const input = this.pendingDebugInput ?? this.buildViewportInput();
+    this.pendingDebugInput = undefined; // consumed → cleared
+    this.applyLayout(computeBattleLayout(input, DEFAULT_BATTLE_LAYOUT_POLICY));
+    this.layoutRevision += 1; // completion signal (observable under ?debug=1)
   }
 
   // Hit-tests a pointer position against every cell's rendered center via the
@@ -244,6 +328,7 @@ export class BattleScene extends Phaser.Scene {
     const result = resolveTurn(this.grid, ROSTER, this.path, this.rng);
     this.path = [];
     this.traceGraphics.clear();
+    this.tracePointCount = 0;
 
     if (window.__debug) {
       window.__debug.lastTurn = result;
@@ -262,6 +347,9 @@ export class BattleScene extends Phaser.Scene {
   // Shared by onPointerUp and the debug setMonsterHp hook so there is
   // exactly one defeat-check code path.
   private checkVictory(): void {
+    // Never stack banners: clear the transient layer before (re)adding, so a
+    // reflow after victory re-lays-out a single banner rather than duplicating it.
+    this.transientUiContainer.removeAll(true);
     if (isDefeated(this.monster)) {
       // Centered on the background, at the vertical center of the battle→table
       // transition (table rear edge → tile top), so the banner reads over both
@@ -316,7 +404,10 @@ export class BattleScene extends Phaser.Scene {
   // convention.
   private drawTraceLine(): void {
     this.traceGraphics.clear();
-    if (this.path.length < 2) return;
+    if (this.path.length < 2) {
+      this.tracePointCount = 0; // nothing drawn (empty/single-cell selection)
+      return;
+    }
     this.traceGraphics.lineStyle(4, 0xffffff, 1);
     this.traceGraphics.beginPath();
     const board = this.activeLayout.board;
@@ -327,6 +418,7 @@ export class BattleScene extends Phaser.Scene {
       this.traceGraphics.lineTo(p.x, p.y);
     }
     this.traceGraphics.strokePath();
+    this.tracePointCount = this.path.length; // one drawn point per selected cell
   }
 
   // Persistent full-canvas background placeholder (stand-in for a future
@@ -336,6 +428,7 @@ export class BattleScene extends Phaser.Scene {
   // overlapping ellipse plus low-alpha feather bands) rather than a hard,
   // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
   private drawBackground(): void {
+    this.backgroundContainer.removeAll(true); // idempotent: safe to redraw on reflow
     const bg = this.activeLayout.background;
     const g = this.add.graphics();
     const upper = 0x262042; // darker arena wall
@@ -364,6 +457,7 @@ export class BattleScene extends Phaser.Scene {
   // dashboard. Flat Graphics only, non-interactive, all kept at y < 260 so no
   // prop touches the tile bounds. Drawn ONCE; never touched by drawBoard().
   private drawEnvironment(): void {
+    this.environmentContainer.removeAll(true); // idempotent: safe to redraw on reflow
     const g = this.add.graphics();
     // Off-center alcove arch behind the monster (slightly lighter than the wall).
     g.fillStyle(0x2f2950, 1);
@@ -388,6 +482,7 @@ export class BattleScene extends Phaser.Scene {
   // footprint is derived from the real tile bounds — the art fits the engine,
   // not the reverse.
   private drawTable(): void {
+    this.tableContainer.removeAll(true); // idempotent: safe to redraw on reflow
     const t = this.activeLayout.table;
     const g = this.add.graphics();
     g.fillStyle(0x6b4a30, 1);
@@ -424,6 +519,10 @@ export class BattleScene extends Phaser.Scene {
   // match the intended final footprints. See
   // docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md.
   private drawCharacterPlaceholders(): void {
+    // Idempotent: this method draws into both the monster and hero containers,
+    // so clear both before redrawing on a reflow.
+    this.monsterContainer.removeAll(true);
+    this.heroContainer.removeAll(true);
     // Monster: dominant silhouette + contact shadow, centered in the monster band.
     const m = this.activeLayout.boss;
     const mCenterX = m.x + m.width / 2;
