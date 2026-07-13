@@ -114,6 +114,41 @@ describe('computeBossHudLayout', () => {
   });
 });
 
+describe('computeLayoutRegions — explicit band ranges / tableWidthFraction params', () => {
+  it('defaults reproduce the fixed composition exactly', () => {
+    const withDefaults = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const withExplicit = computeLayoutRegions(
+      CANVAS_WIDTH,
+      CANVAS_HEIGHT,
+      { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
+      0.88,
+    );
+    expect(withExplicit).toEqual(withDefaults);
+  });
+
+  it('honors an alternate table width fraction', () => {
+    const r = computeLayoutRegions(
+      CANVAS_WIDTH,
+      CANVAS_HEIGHT,
+      { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
+      0.5,
+    );
+    expect(r.boardWidthBand.width).toBeCloseTo(240, 5); // 480 * 0.5
+    expect(r.boardWidthBand.left).toBeCloseTo(120, 5); // centered: (480-240)/2
+  });
+
+  it('honors alternate band ranges', () => {
+    const r = computeLayoutRegions(
+      CANVAS_WIDTH,
+      CANVAS_HEIGHT,
+      { topHud: [0, 10], monster: [10, 40], hero: [40, 50], board: [50, 95], safeBottom: [95, 100] },
+      0.88,
+    );
+    expectBand(r.topHud, 0, 72); // 720 * 0.10
+    expectBand(r.board, 360, 684); // 720 * [0.50, 0.95]
+  });
+});
+
 describe('computeTableBounds', () => {
   const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
   // Tiles are now centered in the table span: bbox top 400, bottom 636.
