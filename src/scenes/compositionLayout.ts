@@ -31,11 +31,9 @@ export interface LayoutRegions {
   boardWidthBand: { left: number; right: number; width: number };
 }
 
-// Vertical composition band ranges as [fromPct, toPct] pairs. Kept as a
-// parameter (below) so battleLayout can supply the policy's ranges; these
-// defaults reproduce today's fixed composition. TEMPORARY second copy — removed
-// in M2 once BattleScene reads its layout through battleLayout instead of
-// calling here directly, leaving BattleLayoutPolicy the sole source.
+// Vertical composition band ranges as [fromPct, toPct] pairs. Supplied by the
+// caller (battleLayout, from BattleLayoutPolicy) so this module holds no copy of
+// any responsive value — BattleLayoutPolicy is the single source of truth.
 export interface BandRanges {
   topHud: [number, number];
   monster: [number, number];
@@ -43,17 +41,6 @@ export interface BandRanges {
   board: [number, number];
   safeBottom: [number, number];
 }
-
-const DEFAULT_BAND_RANGES: BandRanges = {
-  topHud: [0, 8],
-  monster: [8, 34],
-  hero: [34, 46],
-  board: [46, 93],
-  safeBottom: [93, 100],
-};
-
-// Blueprint: "the board should normally use at least 88% of the safe width."
-const DEFAULT_TABLE_WIDTH_FRACTION = 0.88;
 
 export interface PlaceholderLayout {
   monster: Rect;
@@ -68,8 +55,8 @@ export interface BossHudLayout {
 export function computeLayoutRegions(
   width: number,
   height: number,
-  bands: BandRanges = DEFAULT_BAND_RANGES,
-  tableWidthFraction: number = DEFAULT_TABLE_WIDTH_FRACTION,
+  bands: BandRanges,
+  tableWidthFraction: number,
 ): LayoutRegions {
   const band = (fromPct: number, toPct: number): Band => {
     const top = height * (fromPct / 100);

@@ -12,19 +12,10 @@ import { canExtendChain } from '../core/chain';
 import { mulberry32, RandomFn } from '../core/rng';
 import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core/combat';
 import { resolveTurn, ResolutionResult } from '../core/resolution';
-import { cellToPixel, STONE_RADIUS, tileBounds } from './boardLayout';
-import {
-  computeLayoutRegions,
-  computePlaceholderLayout,
-  computeTableBounds,
-  computeTableSpan,
-  computeBossHudLayout,
-  CANVAS_WIDTH,
-  CANVAS_HEIGHT,
-} from './compositionLayout';
+import { cellToPixel, cellAtPixel } from './boardGeometry';
+import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from './battleLayout';
+import type { BattleLayout, ViewportInput } from './battleLayout';
 import { DEPTH } from './depth';
-
-export { ORIGIN_X, ORIGIN_Y, COL_WIDTH, ROW_HEIGHT, STONE_RADIUS, cellToPixel } from './boardLayout';
 
 const COLOR_HEX: Record<ElementColor, number> = {
   red: 0xe74c3c,
@@ -59,6 +50,8 @@ export interface DebugApi {
   spawnPortal(row: number, col: number): void;
   getBoard(): { row: number; col: number; content: CellContent }[];
   setMonsterHp(hp: number): void;
+  getBattleLayout(): BattleLayout; // serializable copy of the active layout
+  getLayoutRevision(): number; // increments once per applied reflow
 }
 
 declare global {
@@ -88,9 +81,21 @@ export class BattleScene extends Phaser.Scene {
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
+  // The single computed layout every draw method + input reads from. All its
+  // coordinates are already global (battleLayout applied the offsets), so every
+  // container stays at (0,0) scale 1 with no camera/Container transform.
+  private activeLayout!: BattleLayout;
+  private layoutRevision = 0;
 
   constructor() {
     super('battle');
+  }
+
+  // The viewport the layout is computed for. Fixed 480x720 / null-insets in this
+  // milestone (Scale.NONE). M4 makes this read this.scale.gameSize + the
+  // browserViewport safe-area insets.
+  private buildViewportInput(): ViewportInput {
+    return { width: 480, height: 720, safeInsets: { top: 0, right: 0, bottom: 0, left: 0 } };
   }
 
   create(): void {
@@ -123,6 +128,8 @@ export class BattleScene extends Phaser.Scene {
           this.drawHp();
           this.checkVictory();
         },
+        getBattleLayout: () => JSON.parse(JSON.stringify(this.activeLayout)),
+        getLayoutRevision: () => this.layoutRevision,
       };
     }
 
@@ -150,6 +157,11 @@ export class BattleScene extends Phaser.Scene {
     this.hpBar = this.add.graphics();
     this.hudContainer.add([this.hpBar, this.hpText]);
 
+    // Compute the layout once, before the first draw. Every draw method reads
+    // this.activeLayout; no draw recomputes geometry of its own.
+    this.activeLayout = computeBattleLayout(this.buildViewportInput(), DEFAULT_BATTLE_LAYOUT_POLICY);
+    this.layoutRevision = 0;
+
     this.drawBackground();
     this.drawEnvironment();
     this.drawTable();
@@ -166,16 +178,11 @@ export class BattleScene extends Phaser.Scene {
     document.body.setAttribute('data-scene', 'battle');
   }
 
-  // Hit-tests a pointer position against every cell's rendered center,
-  // returning whichever one it's within STONE_RADIUS of (or null).
+  // Hit-tests a pointer position against every cell's rendered center via the
+  // shared board geometry — nearest admissible cell within hitRadius (or null),
+  // the same function the Vitest/Playwright specs use.
   private cellAt(x: number, y: number): CellCoord | null {
-    for (const cell of getAllCells()) {
-      const p = cellToPixel(cell.row, cell.col);
-      if (Phaser.Math.Distance.Between(x, y, p.x, p.y) <= STONE_RADIUS) {
-        return cell;
-      }
-    }
-    return null;
+    return cellAtPixel({ x, y }, getAllCells(), this.activeLayout.board);
   }
 
   // Starts a new drag path if the press lands on a cell.
@@ -256,13 +263,12 @@ export class BattleScene extends Phaser.Scene {
   // exactly one defeat-check code path.
   private checkVictory(): void {
     if (isDefeated(this.monster)) {
-      const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-      // Centered on the canvas, at the vertical center of the battle→table
+      // Centered on the background, at the vertical center of the battle→table
       // transition (table rear edge → tile top), so the banner reads over both
-      // the scene background and the table surface.
-      const y = (computeTableSpan(regions).top + tileBounds().top) / 2;
+      // the scene background and the table surface. All reads are global.
+      const y = (this.activeLayout.table.y + this.activeLayout.board.tileBounds.y) / 2;
       const victoryText = this.add
-        .text(CANVAS_WIDTH / 2, y, 'Victory!', { fontSize: '32px', color: '#ffffff' })
+        .text(this.activeLayout.background.width / 2, y, 'Victory!', { fontSize: '32px', color: '#ffffff' })
         .setOrigin(0.5, 0.5);
       this.transientUiContainer.add(victoryText);
       document.body.setAttribute('data-scene', 'victory');
@@ -274,17 +280,19 @@ export class BattleScene extends Phaser.Scene {
   // vertical slice.
   private drawBoard(): void {
     this.boardLayer.removeAll(true);
+    const board = this.activeLayout.board;
+    const radius = board.visualRadius;
     for (const cell of getAllCells()) {
-      const { x, y } = cellToPixel(cell.row, cell.col);
+      const { x, y } = cellToPixel(board, cell.row, cell.col);
       const content = this.grid.get(cell.row, cell.col);
       const graphics = this.add.graphics();
       this.boardLayer.add(graphics);
       if (content.type === 'stone') {
         graphics.fillStyle(COLOR_HEX[content.color], 1);
-        graphics.fillCircle(x, y, STONE_RADIUS);
+        graphics.fillCircle(x, y, radius);
       } else if (content.type === 'special') {
         graphics.fillStyle(0x888888, 1);
-        graphics.fillCircle(x, y, STONE_RADIUS);
+        graphics.fillCircle(x, y, radius);
         const label = this.add.text(x - 10, y - 11, TILE_LABEL[content.tile], {
           fontSize: '18px',
           color: '#000000',
@@ -292,7 +300,7 @@ export class BattleScene extends Phaser.Scene {
         this.boardLayer.add(label);
       } else if (content.type === 'portal') {
         graphics.fillStyle(0xaa66ff, 1);
-        graphics.fillCircle(x, y, STONE_RADIUS);
+        graphics.fillCircle(x, y, radius);
         const label = this.add.text(x - 10, y - 11, PORTAL_LABEL, {
           fontSize: '18px',
           color: '#000000',
@@ -311,10 +319,11 @@ export class BattleScene extends Phaser.Scene {
     if (this.path.length < 2) return;
     this.traceGraphics.lineStyle(4, 0xffffff, 1);
     this.traceGraphics.beginPath();
-    const first = cellToPixel(this.path[0].row, this.path[0].col);
+    const board = this.activeLayout.board;
+    const first = cellToPixel(board, this.path[0].row, this.path[0].col);
     this.traceGraphics.moveTo(first.x, first.y);
     for (let i = 1; i < this.path.length; i++) {
-      const p = cellToPixel(this.path[i].row, this.path[i].col);
+      const p = cellToPixel(board, this.path[i].row, this.path[i].col);
       this.traceGraphics.lineTo(p.x, p.y);
     }
     this.traceGraphics.strokePath();
@@ -327,24 +336,24 @@ export class BattleScene extends Phaser.Scene {
   // overlapping ellipse plus low-alpha feather bands) rather than a hard,
   // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
   private drawBackground(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const bg = this.activeLayout.background;
     const g = this.add.graphics();
     const upper = 0x262042; // darker arena wall
     const lower = 0x2e2636; // slightly warmer/deeper work area behind the table
-    // Base value covers the whole canvas.
+    // Base value covers the whole background/viewport.
     g.fillStyle(upper, 1);
-    g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    g.fillRect(bg.x, bg.y, bg.width, bg.height);
     // Lower work area; its top is softened into a curved horizon by a wide
     // ellipse that overlaps upward, so the two zones never meet on a straight line.
-    const horizonY = regions.hero.top; // behind/above the table rear edge
+    const horizonY = this.activeLayout.environment.horizonY; // behind/above the table rear edge
     g.fillStyle(lower, 1);
-    g.fillRect(0, horizonY, CANVAS_WIDTH, CANVAS_HEIGHT - horizonY);
-    g.fillEllipse(CANVAS_WIDTH / 2, horizonY, CANVAS_WIDTH * 1.5, 150);
+    g.fillRect(bg.x, horizonY, bg.width, bg.height - horizonY);
+    g.fillEllipse(bg.width / 2, horizonY, bg.width * 1.5, 150);
     // Low-alpha bands feather the meeting of the two zones (no UI divider).
     g.fillStyle(lower, 0.3);
-    g.fillRect(0, horizonY - 70, CANVAS_WIDTH, 70);
+    g.fillRect(bg.x, horizonY - 70, bg.width, 70);
     g.fillStyle(upper, 0.2);
-    g.fillRect(0, horizonY, CANVAS_WIDTH, 50);
+    g.fillRect(bg.x, horizonY, bg.width, 50);
     this.backgroundContainer.add(g);
   }
 
@@ -379,8 +388,7 @@ export class BattleScene extends Phaser.Scene {
   // footprint is derived from the real tile bounds — the art fits the engine,
   // not the reverse.
   private drawTable(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const t = computeTableBounds(regions, tileBounds());
+    const t = this.activeLayout.table;
     const g = this.add.graphics();
     g.fillStyle(0x6b4a30, 1);
     g.fillRoundedRect(t.x, t.y, t.width, t.height, 24);
@@ -394,8 +402,7 @@ export class BattleScene extends Phaser.Scene {
   // Redraws the HP text/bar and mirrors the current HP into a DOM
   // attribute so the Playwright e2e test can read it without parsing canvas.
   private drawHp(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const hud = computeBossHudLayout(regions);
+    const hud = this.activeLayout.bossHud;
     const bar = hud.bar;
 
     this.hpText.setText(`${this.monster.name}: ${this.monster.hp}/${this.monster.maxHp}`);
@@ -417,11 +424,8 @@ export class BattleScene extends Phaser.Scene {
   // match the intended final footprints. See
   // docs/superpowers/specs/2026-07-11-battle-scene-composition-design.md.
   private drawCharacterPlaceholders(): void {
-    const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const layout = computePlaceholderLayout(regions);
-
     // Monster: dominant silhouette + contact shadow, centered in the monster band.
-    const m = layout.monster;
+    const m = this.activeLayout.boss;
     const mCenterX = m.x + m.width / 2;
     const mShadow = this.add.graphics();
     mShadow.fillStyle(0x000000, 0.25);
@@ -440,7 +444,7 @@ export class BattleScene extends Phaser.Scene {
     // masks the bottom few pixels. No name labels: the previous ones sat behind
     // the table and were never visible.
     ROSTER.forEach((character, i) => {
-      const h = layout.heroes[i];
+      const h = this.activeLayout.heroes[i];
       const cx = h.x + h.width / 2;
       const shadow = this.add.graphics();
       shadow.fillStyle(0x000000, 0.25);
