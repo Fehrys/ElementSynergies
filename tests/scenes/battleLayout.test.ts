@@ -127,3 +127,73 @@ describe('computeBattleLayout — global coordinate spaces (offsets applied)', (
     expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
   });
 });
+
+describe('computeBattleLayout — synthetic safe-area insets (audit cases)', () => {
+  const W = 390;
+  const H = 844;
+  const cases: { name: string; insets: { top: number; right: number; bottom: number; left: number } }[] = [
+    { name: 'no insets', insets: { top: 0, right: 0, bottom: 0, left: 0 } },
+    { name: 'top/bottom notch', insets: { top: 47, right: 0, bottom: 34, left: 0 } },
+    { name: 'lateral + bottom insets', insets: { top: 0, right: 22, bottom: 20, left: 14 } },
+  ];
+
+  for (const { name, insets } of cases) {
+    describe(name, () => {
+      const L = computeBattleLayout({ width: W, height: H, safeInsets: insets }, DEFAULT_BATTLE_LAYOUT_POLICY);
+
+      it('derives the correct safeRect from the insets', () => {
+        expect(L.safeRect).toEqual({
+          x: insets.left,
+          y: insets.top,
+          width: W - insets.left - insets.right,
+          height: H - insets.top - insets.bottom,
+        });
+      });
+
+      it('centers the gameplay column IN the safeRect (not the raw viewport)', () => {
+        const width = Math.min(L.safeRect.width, DEFAULT_BATTLE_LAYOUT_POLICY.maxGameplayColumnWidth);
+        expect(L.gameplayColumn.width).toBeCloseTo(width, 9);
+        expect(L.gameplayColumn.x).toBeCloseTo(L.safeRect.x + (L.safeRect.width - width) / 2, 9);
+      });
+
+      it('keeps the board fully inside the gameplay column', () => {
+        expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+        expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
+          L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
+        );
+      });
+
+      it('keeps the three widths distinct and ordered (column > table > board bbox)', () => {
+        expect(L.gameplayColumn.width).toBeGreaterThan(L.table.width);
+        expect(L.table.width).toBeGreaterThan(L.board.tileBounds.width);
+      });
+
+      it('produces contiguous, ordered vertical bands', () => {
+        const b = L.bands;
+        expect(b.topHud.bottom).toBeCloseTo(b.monster.top, 9);
+        expect(b.monster.bottom).toBeCloseTo(b.hero.top, 9);
+        expect(b.hero.bottom).toBeCloseTo(b.board.top, 9);
+        expect(b.board.bottom).toBeCloseTo(b.safeBottom.top, 9);
+        expect(b.topHud.top).toBeCloseTo(L.safeRect.y, 9);
+        expect(b.safeBottom.bottom).toBeCloseTo(L.safeRect.y + L.safeRect.height, 9);
+      });
+
+      it('keeps the monster band taller than the hero band', () => {
+        expect(L.bands.monster.height).toBeGreaterThan(L.bands.hero.height);
+      });
+    });
+  }
+});
+
+describe('computeBattleLayout — DPR independence is structural', () => {
+  it('takes no devicePixelRatio parameter (arity is exactly input + policy)', () => {
+    expect(computeBattleLayout.length).toBe(2);
+  });
+  it('is a pure function of ViewportInput: identical inputs yield deep-equal layouts', () => {
+    const input = { width: 390, height: 844, safeInsets: { top: 47, right: 0, bottom: 34, left: 0 } };
+    const a = computeBattleLayout(input, DEFAULT_BATTLE_LAYOUT_POLICY);
+    const b = computeBattleLayout({ ...input, safeInsets: { ...input.safeInsets } }, DEFAULT_BATTLE_LAYOUT_POLICY);
+    // No DPR input exists to vary — layout depends only on the viewport model.
+    expect(a).toEqual(b);
+  });
+});
