@@ -13,6 +13,7 @@ import {
   computeTableSpan,
   computeBossHudLayout,
 } from './compositionLayout';
+import type { BandRanges } from './compositionLayout';
 
 export interface Rect {
   x: number;
@@ -124,10 +125,65 @@ export function baseTileWidthFraction(policy: BattleLayoutPolicy): number {
   return policy.legacyBoardWidthAt480 / LEGACY_VIEWPORT_WIDTH;
 }
 
-// The ONLY place a column width becomes a tile-width fraction. M6 tunes just this
-// resolver; M1 returns baseTileWidthFraction(policy) unconditionally.
-export function resolveTileWidthFraction(_columnWidth: number, policy: BattleLayoutPolicy): number {
-  return baseTileWidthFraction(policy);
+// Width (game units) at/below which the widening saturates at maxTileWidthFraction.
+// Structural constant tied to the smallest supported viewport (see the decisions
+// doc), NOT tunable per-run policy.
+const MAX_FRACTION_AT_WIDTH = 320;
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+// The ONLY place a column width becomes a tile-width fraction. Horizontal width
+// policy (audit order): at/above narrowWidthThreshold the puzzle keeps its exact
+// 480 baseline share; below it the share grows linearly toward maxTileWidthFraction
+// as width shrinks, reaching it at MAX_FRACTION_AT_WIDTH. Because the fraction stays
+// < 1 and the scaled bbox is centered in the column (⊆ safeRect), tileBounds can
+// never overflow the safeRect — the widening is overflow-safe by construction.
+export function resolveTileWidthFraction(columnWidth: number, policy: BattleLayoutPolicy): number {
+  const base = baseTileWidthFraction(policy);
+  if (columnWidth >= policy.narrowWidthThreshold) return base; // 480+ → exact baseline
+  const t = clamp01(
+    (policy.narrowWidthThreshold - columnWidth) / (policy.narrowWidthThreshold - MAX_FRACTION_AT_WIDTH),
+  );
+  return base + (policy.maxTileWidthFraction - base) * t;
+}
+
+// Structural verticals tied to the 480x720 baseline (NOT tunable policy): at/above
+// the reference safeRect height the bands are the exact baseline proportions (so
+// 480x720 stays pixel-neutral); at/below the floor the compression saturates.
+const VERTICAL_REFERENCE_HEIGHT = 720;
+const VERTICAL_COMPRESSION_FLOOR = 480;
+// Percentage points the chrome bands cede to the board at full compression.
+const MAX_TOPHUD_COMPRESSION = 3; // topHud 8 → 5
+const MAX_HERO_COMPRESSION = 4; //  hero  12 → 8  (board gains 7 → 54)
+
+// Vertical degradation order (audit): when vertical space is scarce, the chrome
+// bands (topHud, hero) give up height to the board — the board is reduced LAST.
+// Derived from policy.bands (single source) apart from the compression amounts.
+// At/above the reference height (incl. 480x720) the exact baseline ranges are
+// returned unchanged, so the baseline composition never moves.
+export function resolveBandRanges(policy: BattleLayoutPolicy, safeHeight: number): BandRanges {
+  const t = clamp01(
+    (VERTICAL_REFERENCE_HEIGHT - safeHeight) / (VERTICAL_REFERENCE_HEIGHT - VERTICAL_COMPRESSION_FLOOR),
+  );
+  if (t === 0) return policy.bands;
+  const dTop = MAX_TOPHUD_COMPRESSION * t;
+  const dHero = MAX_HERO_COMPRESSION * t;
+  const monsterHeight = policy.bands.monster[1] - policy.bands.monster[0];
+  const heroHeight = policy.bands.hero[1] - policy.bands.hero[0];
+  const [topHudTop, topHudNominalBottom] = policy.bands.topHud;
+  const [safeTop, safeBottom] = policy.bands.safeBottom;
+  const topHudBottom = topHudNominalBottom - dTop;
+  const monsterBottom = topHudBottom + monsterHeight;
+  const heroBottom = monsterBottom + (heroHeight - dHero);
+  return {
+    topHud: [topHudTop, topHudBottom],
+    monster: [topHudBottom, monsterBottom],
+    hero: [monsterBottom, heroBottom],
+    board: [heroBottom, safeTop], // board grows upward: chrome ceded height, board reduced last
+    safeBottom: [safeTop, safeBottom],
+  };
 }
 
 // battleLayout owns the policy and resolves it into the plain, already-computed
@@ -226,9 +282,18 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   const liftBand = (b: Band): Band => ({ top: b.top + vOff, bottom: b.bottom + vOff, height: b.height });
 
   // Composition in LOCAL space: horizontal extent = column width, vertical
-  // extent = safeRect height. computeLayoutRegions gets the policy's band ranges
-  // and tableWidthFraction so no composition value is duplicated here.
-  const regionsLocal = computeLayoutRegions(gameplayColumn.width, safeRect.height, policy.bands, policy.tableWidthFraction);
+  // extent = safeRect height. Band ranges come from the vertical-degradation
+  // resolver (baseline-neutral at/above the reference height). The table surface
+  // must always ENCLOSE the puzzle, so on narrow viewports — where the board
+  // widens past the baseline 88% — the table widens with it (max of the policy
+  // fraction and the resolved tile-width fraction). At 480 the tile fraction is
+  // below 0.88, so the table stays at its baseline 88% (neutral).
+  const bandRanges = resolveBandRanges(policy, safeRect.height);
+  const tableWidthFraction = Math.max(
+    policy.tableWidthFraction,
+    resolveTileWidthFraction(gameplayColumn.width, policy),
+  );
+  const regionsLocal = computeLayoutRegions(gameplayColumn.width, safeRect.height, bandRanges, tableWidthFraction);
 
   const bands: LayoutBands = {
     topHud: liftBand(regionsLocal.topHud),

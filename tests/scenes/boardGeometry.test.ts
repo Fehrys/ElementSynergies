@@ -80,3 +80,26 @@ describe('cellAtPixel — nearest admissible cell', () => {
     expect(g.hitRadius).toBeLessThan(g.rowHeight / 2);
   });
 });
+
+describe('computeBoardGeometry — narrow-viewport widening stays isotropic and overflow-free', () => {
+  // boardGeometry is policy-free (M6 tunes battleLayout only). Fed the saturated
+  // widening fraction at a 320 column, it must keep visualRadius = STONE_RADIUS*scale
+  // and never push tileBounds outside the column.
+  it('keeps visualRadius isotropic and tileBounds inside the column at a widened 320 input', () => {
+    const column = { x: 0, y: 0, width: 320, height: 568 };
+    const tableSpan = { top: 260, bottom: 560 };
+    const g = computeBoardGeometry({
+      column,
+      tableSpan,
+      tileWidthFraction: 0.94, // the saturated widening fraction from resolveTileWidthFraction
+      boardHeightFraction: 0.85,
+      targetMinVisualRadius: 16,
+      targetMinHitRadius: 20,
+      maxBoardScale: 1.4,
+    });
+    expect(g.visualRadius).toBeCloseTo(g.colWidth * (22 / 56), 9); // never floored independently
+    expect(g.tileBounds.x).toBeGreaterThanOrEqual(column.x - 1e-6);
+    expect(g.tileBounds.x + g.tileBounds.width).toBeLessThanOrEqual(column.x + column.width + 1e-6);
+    expect(g.hitRadius).toBeLessThan(g.rowHeight / 2);
+  });
+});

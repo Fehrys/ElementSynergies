@@ -5,6 +5,9 @@ import {
   sanitizeInsets,
   cssInsetsToGame,
   clampInsetsToViewport,
+  resolveTileWidthFraction,
+  resolveBandRanges,
+  baseTileWidthFraction,
 } from '../../src/scenes/battleLayout';
 
 const noInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -163,9 +166,12 @@ describe('computeBattleLayout — synthetic safe-area insets (audit cases)', () 
         );
       });
 
-      it('keeps the three widths distinct and ordered (column > table > board bbox)', () => {
+      it('keeps the table within the column and enclosing the board bbox', () => {
+        // The table always fits inside the column and always encloses the puzzle.
+        // (On narrow viewports the board widens toward the table, so this is >=,
+        // not strictly > — see the M6 horizontal width policy.)
         expect(L.gameplayColumn.width).toBeGreaterThan(L.table.width);
-        expect(L.table.width).toBeGreaterThan(L.board.tileBounds.width);
+        expect(L.table.width).toBeGreaterThanOrEqual(L.board.tileBounds.width - 1e-6);
       });
 
       it('produces contiguous, ordered vertical bands', () => {
@@ -195,5 +201,105 @@ describe('computeBattleLayout — DPR independence is structural', () => {
     const b = computeBattleLayout({ ...input, safeInsets: { ...input.safeInsets } }, DEFAULT_BATTLE_LAYOUT_POLICY);
     // No DPR input exists to vary — layout depends only on the viewport model.
     expect(a).toEqual(b);
+  });
+});
+
+const P = DEFAULT_BATTLE_LAYOUT_POLICY;
+const none = { top: 0, right: 0, bottom: 0, left: 0 };
+
+describe('M6 — horizontal width policy (widening on narrow viewports)', () => {
+  it('keeps the exact 480 baseline fraction and tileBounds width', () => {
+    expect(resolveTileWidthFraction(480, P)).toBeCloseTo(baseTileWidthFraction(P), 12);
+    const L = computeBattleLayout({ width: 480, height: 720, safeInsets: none }, P);
+    expect(L.board.tileBounds.width).toBe(380);
+  });
+
+  it('widens the puzzle on a 320-wide viewport without overflowing the safeRect', () => {
+    expect(resolveTileWidthFraction(320, P)).toBeGreaterThan(baseTileWidthFraction(P));
+    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.safeRect.x - 1e-6);
+    expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
+      L.safeRect.x + L.safeRect.width + 1e-6,
+    );
+    // Best-effort minimum visual radius (~14.7 floor) — the widening lifts it above
+    // the bare-baseline 320 value.
+    expect(L.board.visualRadius).toBeGreaterThanOrEqual(14.7);
+  });
+
+  it('saturates at maxTileWidthFraction at/below the saturation width', () => {
+    expect(resolveTileWidthFraction(320, P)).toBeCloseTo(P.maxTileWidthFraction, 12);
+    expect(resolveTileWidthFraction(280, P)).toBeCloseTo(P.maxTileWidthFraction, 12);
+  });
+});
+
+describe('M6 — radius targets, never a clamp on visualRadius', () => {
+  it('keeps visualRadius exactly STONE_RADIUS * scale (isotropic) at 320, and reports the target honestly', () => {
+    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
+    // 22/56 and 22/48 recover the same isotropic scale from colWidth/rowHeight —
+    // visualRadius is never floored or grown independently of them.
+    expect(L.board.visualRadius).toBeCloseTo(L.board.colWidth * (22 / 56), 9);
+    expect(L.board.visualRadius).toBeCloseTo(L.board.rowHeight * (22 / 48), 9);
+    expect(typeof L.board.targetVisualRadiusSatisfied).toBe('boolean');
+    // hitRadius is the one true floor, capped below half the min center distance.
+    expect(L.board.hitRadius).toBeLessThan(L.board.rowHeight / 2);
+  });
+});
+
+describe('M6 — vertical degradation order (board reduced last)', () => {
+  const height = (b: [number, number]): number => b[1] - b[0];
+
+  it('returns the exact baseline bands at/above the reference height (neutral at 720)', () => {
+    expect(resolveBandRanges(P, 720)).toEqual(P.bands);
+    expect(resolveBandRanges(P, 900)).toEqual(P.bands);
+  });
+
+  it('shrinks topHud and hero first and grows the board on a short viewport, staying contiguous', () => {
+    const s = resolveBandRanges(P, 520); // below reference → compression active
+    expect(height(s.topHud)).toBeLessThan(height(P.bands.topHud));
+    expect(height(s.hero)).toBeLessThan(height(P.bands.hero));
+    expect(height(s.board)).toBeGreaterThan(height(P.bands.board));
+    // The monster band yields nothing — chrome bands cede first.
+    expect(height(s.monster)).toBeCloseTo(height(P.bands.monster), 9);
+    // Contiguous and still spanning [0, 100].
+    expect(s.topHud[0]).toBe(0);
+    expect(s.safeBottom[1]).toBe(100);
+    expect(s.topHud[1]).toBeCloseTo(s.monster[0], 9);
+    expect(s.monster[1]).toBeCloseTo(s.hero[0], 9);
+    expect(s.hero[1]).toBeCloseTo(s.board[0], 9);
+    expect(s.board[1]).toBeCloseTo(s.safeBottom[0], 9);
+  });
+
+  it("the board's vertical share of the safeRect grows as height shrinks (full layout)", () => {
+    const tall = computeBattleLayout({ width: 390, height: 900, safeInsets: none }, P);
+    const short = computeBattleLayout({ width: 390, height: 600, safeInsets: none }, P);
+    const share = (L: ReturnType<typeof computeBattleLayout>): number => L.bands.board.height / L.safeRect.height;
+    expect(share(short)).toBeGreaterThan(share(tall));
+  });
+});
+
+describe('M6 — tablet / tall-screen invariants', () => {
+  it('keeps the table within the column and the background spanning the full viewport (768x1024)', () => {
+    const L = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
+    expect(L.table.width).toBeLessThanOrEqual(L.gameplayColumn.width);
+    expect(L.background).toEqual({ x: 0, y: 0, width: 768, height: 1024 });
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+    expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
+      L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
+    );
+  });
+
+  it('keeps heroes within the column and above the board across tablet/tall sizes', () => {
+    for (const vp of [
+      { width: 768, height: 1024 },
+      { width: 430, height: 932 },
+      { width: 412, height: 915 },
+    ]) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      for (const h of L.heroes) {
+        expect(h.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+        expect(h.x + h.width).toBeLessThanOrEqual(L.gameplayColumn.x + L.gameplayColumn.width + 0.5);
+        expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6); // grounded above the board
+      }
+    }
   });
 });
