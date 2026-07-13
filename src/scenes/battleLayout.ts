@@ -50,6 +50,7 @@ export interface BattleLayoutPolicy {
   narrowWidthThreshold: number; // 480 — at/below this safeRect width, widening is allowed (M6)
   boardHeightFraction: number; // fraction of the table span the board bbox may fill (single source)
   tableWidthFraction: number; // 0.88 — table/board band as a share of the column (single source)
+  minimumTablePadding: number; // min game-units gap between the tile bbox and the table edge, each side
   targetMinVisualRadius: number; // 16 — a policy TARGET, not a floor
   targetMinHitRadius: number; // 20
   maxBoardScale: number; // 1.4 — cap on upscale (desktop); baseline still binds at 1
@@ -101,6 +102,7 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   narrowWidthThreshold: 480,
   boardHeightFraction: 0.85, // > 0.607 so horizontal binds at 480 -> scale 1
   tableWidthFraction: 0.88,
+  minimumTablePadding: 8, // narrow viewports: keep >= 8 game units of table around the tiles each side
   targetMinVisualRadius: 16,
   targetMinHitRadius: 20,
   maxBoardScale: 1.4,
@@ -283,16 +285,32 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
 
   // Composition in LOCAL space: horizontal extent = column width, vertical
   // extent = safeRect height. Band ranges come from the vertical-degradation
-  // resolver (baseline-neutral at/above the reference height). The table surface
-  // must always ENCLOSE the puzzle, so on narrow viewports — where the board
-  // widens past the baseline 88% — the table widens with it (max of the policy
-  // fraction and the resolved tile-width fraction). At 480 the tile fraction is
-  // below 0.88, so the table stays at its baseline 88% (neutral).
+  // resolver (baseline-neutral at/above the reference height).
   const bandRanges = resolveBandRanges(policy, safeRect.height);
-  const tableWidthFraction = Math.max(
+
+  // The vertical bands and the table span are independent of the table WIDTH
+  // fraction, so size the board from a provisional regions first; then derive the
+  // table width from the actual board so the table always encloses the puzzle with
+  // at least minimumTablePadding on each side (while never exceeding the column).
+  const provisionalRegions = computeLayoutRegions(
+    gameplayColumn.width,
+    safeRect.height,
+    bandRanges,
     policy.tableWidthFraction,
-    resolveTileWidthFraction(gameplayColumn.width, policy),
   );
+  const tableSpanLocal = computeTableSpan(provisionalRegions);
+  const tableSpanGlobal = { top: tableSpanLocal.top + vOff, bottom: tableSpanLocal.bottom + vOff };
+  // Board geometry works entirely in GLOBAL space (global column + global table
+  // span), so board.tileBounds/origin are already global.
+  const board = computeBoardGeometry(resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, policy));
+
+  // Table encloses the board bbox + a minimum padding each side. Below the policy
+  // fraction (wide/desktop) the 0.88 baseline dominates (neutral at 480, where the
+  // padding requirement is already satisfied); on narrow viewports the padding
+  // requirement dominates but is capped at the full column width.
+  const minTableWidth = board.tileBounds.width + 2 * policy.minimumTablePadding;
+  const paddedFraction = gameplayColumn.width > 0 ? minTableWidth / gameplayColumn.width : policy.tableWidthFraction;
+  const tableWidthFraction = Math.min(1, Math.max(policy.tableWidthFraction, paddedFraction));
   const regionsLocal = computeLayoutRegions(gameplayColumn.width, safeRect.height, bandRanges, tableWidthFraction);
 
   const bands: LayoutBands = {
@@ -302,12 +320,6 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     board: liftBand(regionsLocal.board),
     safeBottom: liftBand(regionsLocal.safeBottom),
   };
-
-  // Board geometry works entirely in GLOBAL space (global column + global table
-  // span), so board.tileBounds/origin are already global.
-  const tableSpanLocal = computeTableSpan(regionsLocal);
-  const tableSpanGlobal = { top: tableSpanLocal.top + vOff, bottom: tableSpanLocal.bottom + vOff };
-  const board = computeBoardGeometry(resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, policy));
 
   // computeTableBounds encloses the tiles, so feed it the board bounds back in
   // LOCAL coords, then lift the result.

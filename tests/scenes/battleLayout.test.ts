@@ -303,3 +303,37 @@ describe('M6 — tablet / tall-screen invariants', () => {
     }
   });
 });
+
+describe('M7 — 320x568 support classification (on usable gameplayColumn width, not raw viewport)', () => {
+  it('320x568 with null/moderate lateral insets is FULLY SUPPORTED (target radius met)', () => {
+    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
+    expect(L.gameplayColumn.width).toBe(320); // usable width == viewport width here
+    expect(L.board.visualRadius).toBeGreaterThanOrEqual(P.targetMinVisualRadius); // >= 16
+    expect(L.board.targetVisualRadiusSatisfied).toBe(true);
+  });
+
+  it('the 16 target holds down to ~294 usable column width (22·w·0.94/380 = 16)', () => {
+    // visualRadius is a function of USABLE column width, not the raw viewport.
+    const at294 = computeBattleLayout({ width: 294, height: 568, safeInsets: none }, P);
+    expect(at294.gameplayColumn.width).toBe(294);
+    expect(at294.board.visualRadius).toBeGreaterThanOrEqual(P.targetMinVisualRadius - 0.1); // ≈ 16
+  });
+
+  it('below ~294 usable width it becomes best-effort (below target) but stays overflow-safe', () => {
+    // Narrower USABLE width via lateral insets on a 320 device.
+    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: { top: 0, right: 20, bottom: 0, left: 20 } }, P);
+    expect(L.gameplayColumn.width).toBe(280); // usable width = 320 − 40 insets
+    expect(L.board.visualRadius).toBeLessThan(P.targetMinVisualRadius); // below the 16 target
+    expect(L.board.targetVisualRadiusSatisfied).toBe(false);
+    // Still overflow-safe: the tile bbox stays inside the safeRect.
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.safeRect.x - 1e-6);
+    expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(L.safeRect.x + L.safeRect.width + 1e-6);
+  });
+
+  it('the table keeps at least minimumTablePadding around the tiles on the narrowest supported width', () => {
+    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
+    const margin = (L.table.width - L.board.tileBounds.width) / 2;
+    expect(margin).toBeGreaterThanOrEqual(P.minimumTablePadding - 1e-6);
+    expect(L.table.width).toBeLessThanOrEqual(L.gameplayColumn.width + 1e-6);
+  });
+});

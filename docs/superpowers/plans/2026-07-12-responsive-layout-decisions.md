@@ -7,7 +7,13 @@
 > `resolveTileWidthFraction` / `resolveBandRanges` resolvers). `boardGeometry.ts`
 > stays policy-free.
 
-Date: 2026-07-13. Milestone: M6 (responsive tuning).
+Date: 2026-07-13. Milestones: M6 (responsive tuning) + M7 updates (usable-width
+support classification, `minimumTablePadding`, radius-wording correction, DPR
+decision split). Policy values live in `DEFAULT_BATTLE_LAYOUT_POLICY`:
+`maxGameplayColumnWidth 560`, `legacyBoardWidthAt480 380`, `maxTileWidthFraction
+0.94`, `narrowWidthThreshold 480`, `boardHeightFraction 0.85`, `tableWidthFraction
+0.88`, `minimumTablePadding 8`, `targetMinVisualRadius 16`, `targetMinHitRadius 20`,
+`maxBoardScale 1.4`.
 
 ## Baseline neutrality (non-negotiable)
 
@@ -31,11 +37,16 @@ decision below leaves 480×720 untouched.
   margins → use nearly the full safeRect width → rely on `hitRadius > visualRadius`
   → escalate to this doc if `targetMinVisualRadius` is still unreachable (feasible
   result wins; never a blind floor that overflows).
-- **The table surface tracks the puzzle:** the effective table width fraction is
-  `max(tableWidthFraction, resolveTileWidthFraction(column))`, so the preparation
-  table always **encloses** the board bbox (tiles never overhang the table) while
-  still fitting inside the column. At 480 the tile fraction is below `0.88`, so the
-  table stays at its baseline `0.88` (neutral).
+- **The table surface encloses the puzzle with a real margin:** the effective table
+  width is `clamp(tileBounds.width + 2·minimumTablePadding, 0.88·column, column)`, so
+  the preparation table always wraps the board bbox with **≥ `minimumTablePadding = 8`
+  game units** on each side (tiles never sit flush with, or overhang, the table edge),
+  while never exceeding the column. This was confirmed necessary from the M7
+  narrow-viewport screenshots (320×568 / 360×640), where the earlier
+  `max(fraction, tileFraction)` rule left ~0 px of margin. At 480 the padding
+  requirement is already satisfied by the `0.88` baseline, so the table stays at
+  `0.88` (**neutral**). On very narrow columns the padding is best-effort (the table
+  is capped at the full column width).
 
 ## Vertical degradation order (`resolveBandRanges`)
 
@@ -54,14 +65,21 @@ reduced last**:
 ## Radius targets vs. floors
 
 - **`visualRadius` is always `STONE_RADIUS * scale`** (the same isotropic factor as
-  `colWidth`/`rowHeight`) — **never** floored or grown independently. The only lever
-  that raises it on narrow viewports is a larger `scale` from the width policy /
-  vertical budget.
+  `colWidth`/`rowHeight`) — **never** floored or grown independently. It has **no
+  independent floor**: it decreases continuously with the usable width. The only
+  lever that raises it on narrow viewports is a larger `scale` from the width policy /
+  vertical budget. On narrow viewports where the horizontal fit binds at the
+  saturated fraction, `visualRadius = 22 · gameplayColumn.width · 0.94 / 380`.
 - **`targetMinVisualRadius = 16`** is a *target*, reported via
-  `targetVisualRadiusSatisfied`. With the widening, a **320×720**-class viewport
-  reaches `visualRadius ≈ 17.4` (target met). Without widening the bare 320 value
-  would be `≈ 14.7`; that ~14.7 is the best-effort floor if a viewport is narrower
-  than 320 (e.g. a 320 device with heavy lateral insets).
+  `targetVisualRadiusSatisfied`, and it is a function of the **usable
+  `gameplayColumn` width** (not the raw CSS viewport width). Solving the formula
+  above, the target is met at a usable column width of **≈ 294** game units and
+  above; below that the radius is simply smaller.
+- **On the 14.7 figure:** `≈ 14.7 px` is **not a floor**. It is only an *indicative /
+  observed* value — the approximate `visualRadius` of a bare 320 px column **without**
+  the widening policy, and equivalently the value observed around **≈ 270** usable
+  units **with** the `0.94` fraction. `visualRadius` keeps decreasing below it as the
+  usable width shrinks further; there is no clamp.
 - **`targetMinHitRadius = 20`** is the one true floor, applied only to `hitRadius`
   and capped at `maximumHitRadius = minCenterDistance/2 − 1e-6` (so a real tie point
   is never admissible for two cells).
@@ -73,14 +91,28 @@ reduced last**:
   560 keeps a comfortable single-column play area, centered, with the decorative
   background spanning the full viewport on either side.
 
-## Supported viewports
+## Supported viewports (classified on USABLE width, M7-final)
 
-- **Fully supported (target radius met): 360×640 and up**, and **320×568** after the
-  widening (`visualRadius ≈ 17.4 ≥ 16`). *(M7 confirms/finalizes the 320
-  classification against the full matrix.)*
-- **Best-effort (below the 16 target): columns narrower than 320** (e.g. 320 device
-  with large lateral safe-area insets) — still overflow-free and playable via the
-  hit-radius floor, but tiles are visibly small.
+Support is a function of the **usable play width** — `safeRect` / `gameplayColumn`
+width in game units — **not** the raw CSS viewport width. A device advertised as
+"320 px" with lateral safe-area insets has *less* usable width than 320, so the
+classification is stated in usable-width terms:
+
+- **Fully supported (target radius met): usable `gameplayColumn` width ≥ ≈ 294 game
+  units.** This includes **320×568 with null or moderate lateral insets**
+  (usable ≈ 320 → `visualRadius ≈ 17.4 ≥ 16`) and every larger portrait/tablet
+  viewport, plus mobile landscape (vertical fit binds but the wide column keeps the
+  radius comfortable).
+- **Best-effort (below the 16 target): usable width < ≈ 294 game units** (e.g. a
+  320 device with heavy lateral safe-area insets). The layout stays **overflow-safe
+  and playable** — `tileBounds ⊆ safeRect`, `hitRadius` floored up to
+  `maximumHitRadius` — but the tiles are visibly small and the `visualRadius` target
+  is reported unmet (`targetVisualRadiusSatisfied === false`).
+
+Concretely, **320×568 is fully supported** at null/moderate lateral insets; it drops
+to best-effort only once insets pull the usable column below ≈ 294. This is asserted
+in `battleLayout.test.ts` ("M7 — 320x568 support classification") and cross-linked
+from the device checklist.
 
 ## Mobile-landscape policy
 
@@ -96,16 +128,28 @@ table rear edge and above the board.
 
 ## HiDPI / DPR decision
 
-**Layout is DPR-independent by construction** — `computeBattleLayout` takes no
-`devicePixelRatio` input; DPR affects only the renderer backing store, never the
-computed layout. No DPR cap is applied. Verified structurally (arity + deep-equal)
-and end-to-end (a `deviceScaleFactor: 3` context yields a layout deep-equal to the
-DPR-1 model, with pointer accuracy preserved).
+Two distinct decisions, with different statuses:
 
-## Open decisions (deferred to the device checklist / M7)
+- **Layout is DPR-independent — DEFINITIVE.** `computeBattleLayout` takes no
+  `devicePixelRatio` input; DPR affects only the renderer backing store, never the
+  computed layout. Verified structurally (arity + deep-equal) and end-to-end (a
+  `deviceScaleFactor: 3` context yields a layout deep-equal to the DPR-1 model, with
+  pointer accuracy preserved). This will not change.
+- **No cap on the renderer backing-store resolution — PROVISIONAL.** We currently let
+  Phaser render at the device's native DPR (no downscale cap). This is acceptable as
+  the current state but is **subject to real-device performance validation** — if a
+  very high-DPR device shows frame-rate/GPU-memory problems, a backing-store cap may
+  be introduced later. That is a rendering decision only; it would **not** affect the
+  DPR-independent layout above. Tracked in the device checklist (R4/R5/R8).
 
-- Final "supported" vs "best-effort" wording for 320×568 is confirmed in M7 against
-  the full matrix and cross-linked from the device checklist.
-- True-notch inset behavior after rotation, high-DPR visual sharpness, and sustained
-  frame rate across resize/rotation are **device-only** gates (not automatable) —
-  see `2026-07-12-responsive-device-checklist.md` (created in M7).
+## Open decisions (deferred to real-device sign-off)
+
+Closed in M7: the 320×568 classification (now stated in usable-width terms above),
+the radius wording, and `minimumTablePadding`. Remaining open items are **device-only**
+(not automatable):
+
+- Whether to introduce a **backing-store DPR cap** (see the provisional decision
+  above) — depends on real-device frame-rate/GPU-memory measurements.
+- True-notch safe-area insets **after rotation**, high-DPR visual sharpness, pointer
+  accuracy on a physical touchscreen, and sustained frame rate across resize/rotation
+  — all in `2026-07-12-responsive-device-checklist.md`.
