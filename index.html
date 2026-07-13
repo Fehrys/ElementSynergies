@@ -2,13 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Spirit Stones Prototype</title>
     <style>
       html,
       body {
+        width: 100%;
+        height: 100%;
         margin: 0;
         padding: 0;
         overflow: hidden;
+      }
+      /* dvh handles dynamic mobile toolbars; the plain vh above is the fallback. */
+      #app {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
       }
       canvas {
         display: block;

@@ -14,7 +14,9 @@ import { ROSTER, createMonster, applyDamage, isDefeated, Monster } from '../core
 import { resolveTurn, ResolutionResult } from '../core/resolution';
 import { cellToPixel, cellAtPixel } from './boardGeometry';
 import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from './battleLayout';
+import { sanitizeInsets, cssInsetsToGame, clampInsetsToViewport } from './battleLayout';
 import type { BattleLayout, ViewportInput } from './battleLayout';
+import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
 import { DEPTH } from './depth';
 
 const COLOR_HEX: Record<ElementColor, number> = {
@@ -104,11 +106,18 @@ export class BattleScene extends Phaser.Scene {
     super('battle');
   }
 
-  // The viewport the layout is computed for. Fixed 480x720 / null-insets in this
-  // milestone (Scale.NONE). M4 makes this read this.scale.gameSize + the
-  // browserViewport safe-area insets.
+  // The viewport the layout is computed for. this.scale.gameSize is the source
+  // of truth for size (what Phaser measured under RESIZE — never window.innerWidth
+  // read directly); safe-area insets come from the browserViewport DOM adapter,
+  // converted to game units, sanitized, and clamped so the safeRect is always
+  // valid. The pure layout model itself never reads the DOM.
   private buildViewportInput(): ViewportInput {
-    return { width: 480, height: 720, safeInsets: { top: 0, right: 0, bottom: 0, left: 0 } };
+    const gameSize = this.scale.gameSize;
+    const canvasRect = getCanvasRect(this.game);
+    const cssInsets = sanitizeInsets(readSafeInsetsCss()); // DOM → sane CSS px
+    const gameInsets = cssInsetsToGame(cssInsets, gameSize, canvasRect); // → game units (no-op under RESIZE)
+    const safeInsets = clampInsetsToViewport(gameInsets, gameSize.width, gameSize.height);
+    return { width: gameSize.width, height: gameSize.height, safeInsets };
   }
 
   create(): void {
@@ -201,13 +210,23 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer));
     this.input.on('pointerup', () => this.onPointerUp());
 
-    // Tear down listeners on scene shutdown/destroy. The Scale `resize` listener
-    // is registered into this same hook in M4; the input listeners are removed
-    // here now so the teardown path exists and is exercised from the start.
+    // Every viewport signal only requests a reflow (never passes width/height);
+    // the reflow reads this.scale.gameSize as the source of truth. The M3
+    // coalescer collapses a simultaneous Phaser + browser burst to one reflow
+    // per frame. subscribeViewportChanges catches signals Phaser's Scale resize
+    // can miss (mobile URL-bar show/hide, rotation).
+    const onResize = (): void => this.scheduleReflow();
+    this.scale.on('resize', onResize);
+    const unsubscribe = subscribeViewportChanges(() => this.scheduleReflow());
+
+    // Tear down every listener on scene shutdown/destroy so a scene restart never
+    // stacks handlers or reflows a dead scene.
     const teardown = (): void => {
       this.input.off('pointerdown');
       this.input.off('pointermove');
       this.input.off('pointerup');
+      this.scale.off('resize', onResize);
+      unsubscribe();
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, teardown);
     this.events.once(Phaser.Scenes.Events.DESTROY, teardown);

@@ -10,6 +10,11 @@ import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from '../../src/sce
 // click coordinate is derived from this exact geometry through the SAME shared
 // cellToPixel — no test-side copy of the coordinate math.
 async function loadBoard(page: Page, url: string): Promise<BoardGeometry> {
+  // Pin the baseline gameplay suite to 480x720. Under Scale.RESIZE the canvas
+  // fills the viewport, so without this the tests would run at Playwright's
+  // default viewport; 480x720 keeps them on the neutral composition the Node
+  // cross-check below asserts against.
+  await page.setViewportSize({ width: 480, height: 720 });
   await page.goto(url);
   await page.waitForSelector('[data-scene="battle"]');
   const layout = await page.evaluate(() => (window as any).__debug.getBattleLayout());
@@ -221,6 +226,7 @@ test('debug mode exposes lastTurn with damage info after a turn, and stays null 
 });
 
 test('debug mode can spawn a special tile and a portal, readable via getBoard', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 720 });
   await page.goto('/?seed=1&debug=1');
   await page.waitForSelector('[data-scene="battle"]');
 
@@ -236,6 +242,7 @@ test('debug mode can spawn a special tile and a portal, readable via getBoard', 
 });
 
 test('debug mode can set monster hp directly, including triggering victory at 0', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 720 });
   await page.goto('/?seed=1&debug=1');
   await page.waitForSelector('[data-scene="battle"]');
 

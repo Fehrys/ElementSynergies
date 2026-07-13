@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { HexGrid, fillBoard } from '../../src/core/grid';
 import type { CellCoord } from '../../src/core/grid';
 import { mulberry32 } from '../../src/core/rng';
@@ -30,6 +30,28 @@ function findValidChain(grid: HexGrid): CellCoord[] {
     if (chain.length >= 3) return chain;
   }
   throw new Error('no valid 3-chain found for this seed');
+}
+
+// Rebuild the CURRENT (possibly post-turn) board from the debug surface, so a
+// chain can be found in the live grid rather than only the seeded initial fill.
+async function readGrid(page: Page): Promise<HexGrid> {
+  const cells = await page.evaluate(() => window.__debug!.getBoard());
+  const grid = new HexGrid();
+  for (const c of cells) grid.set(c.row, c.col, c.content);
+  return grid;
+}
+
+// Play one scoring turn using the RUNTIME layout the scene is currently rendered
+// with (so click coordinates match whatever viewport is live).
+async function playTurn(page: Page): Promise<void> {
+  const grid = await readGrid(page);
+  const chain = findValidChain(grid);
+  const layout = await page.evaluate(() => window.__debug!.getBattleLayout());
+  const pts = chain.map((c) => cellToPixel(layout.board, c.row, c.col));
+  await page.mouse.move(pts[0].x, pts[0].y);
+  await page.mouse.down();
+  for (const p of pts.slice(1)) await page.mouse.move(p.x, p.y);
+  await page.mouse.up();
 }
 
 test('coalesced reflows bump layoutRevision once and never duplicate layers or mutate state', async ({ page }) => {
@@ -135,4 +157,38 @@ test('reflows do not advance the RNG (a scoring turn is identical with or withou
   const withReflows = await playSeededTurn(5);
   expect(withReflows.lastTurn).toEqual(control.lastTurn); // identical turn → RNG not advanced
   expect(withReflows.board).toEqual(control.board); // identical refill → RNG not advanced
+});
+
+test('a real mid-session resize reflows on the next frame and keeps clicks accurate', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 720 });
+  await page.goto('/?seed=1&debug=1');
+  await page.waitForSelector('[data-scene="battle"]');
+
+  // Baseline neutrality under the RESIZE transport: at 480x720 the board is still
+  // pixel-for-pixel the legacy geometry.
+  const l480 = await page.evaluate(() => window.__debug!.getBattleLayout());
+  expect(l480.board.tileBounds).toEqual({ x: 50, y: 400, width: 380, height: 236 });
+
+  // First scoring turn at 480x720.
+  const startHp = Number(await page.getAttribute('body', 'data-monster-hp'));
+  await playTurn(page);
+  const hpAfterFirst = Number(await page.getAttribute('body', 'data-monster-hp'));
+  expect(hpAfterFirst).toBeLessThan(startHp);
+
+  // Real viewport resize → a reflow must be applied on the next frame.
+  const rev = await page.evaluate(() => window.__debug!.getLayoutRevision());
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.waitForFunction((r) => window.__debug!.getLayoutRevision() > r, rev);
+
+  // The layout actually changed (real responsiveness is live) but the board is
+  // still fully inside the gameplay column.
+  const l360 = await page.evaluate(() => window.__debug!.getBattleLayout());
+  expect(l360.input.width).toBe(360);
+  expect(l360.board.tileBounds.x).toBeGreaterThanOrEqual(l360.gameplayColumn.x - 0.5);
+
+  // Second scoring turn driven from the REFLOWED runtime board — proves pointer
+  // accuracy survives a real reflow.
+  await playTurn(page);
+  const hpAfterSecond = Number(await page.getAttribute('body', 'data-monster-hp'));
+  expect(hpAfterSecond).toBeLessThan(hpAfterFirst);
 });
