@@ -1,7 +1,7 @@
 name: CI
 
 # Canonical visual-regression environment for this repo:
-#   GitHub Actions, runs-on: windows-2022, Playwright-managed Chromium,
+#   GitHub Actions, runs-on: windows-2022, Node 24.x, Playwright-managed Chromium,
 #   the Playwright version resolved by package-lock.json (currently 1.61.1),
 #   and the committed win32 snapshot family. See
 #   docs/superpowers/plans/2026-07-12-responsive-layout-decisions.md.
@@ -9,6 +9,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
@@ -17,7 +18,9 @@ on:
         description: >-
           Recapture the Playwright visual baselines on this windows-2022 runner
           and upload them as an artifact (NOT committed). Leave false for a
-          normal validating run.
+          normal validating run. (Available once this workflow exists on the
+          default branch; on a feature branch, use the capture-visual-snapshots
+          PR label instead.)
         type: boolean
         default: false
 
@@ -32,13 +35,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: '24'
           cache: npm
+
+      - name: Report Node runtime
+        run: node --version
 
       - name: Install dependencies (locked)
         run: npm ci
@@ -71,18 +77,65 @@ jobs:
       # NOT committed by the workflow.
       - name: Upload recaptured snapshots
         if: env.UPDATE_SNAPSHOTS == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-2022-visual-snapshots
           path: tests/e2e/visual-baseline.spec.ts-snapshots/
           if-no-files-found: warn
 
+      # Raw Playwright failure files: expected / actual / diff PNGs for visual review.
+      - name: Upload Playwright test results
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+
       # Always publish the Playwright report (expected/actual/diff) when present,
       # so visual diffs from a normal run can be inspected.
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: playwright-report/
           if-no-files-found: ignore
+
+  # Label-gated baseline capture. workflow_dispatch is unavailable until this
+  # workflow exists on the default branch, so a PR label is the safe mechanism to
+  # generate canonical windows-2022 candidate baselines from a feature branch.
+  # Add the `capture-visual-snapshots` label to the PR to run it.
+  capture-visual-snapshots:
+    if: contains(github.event.pull_request.labels.*.name, 'capture-visual-snapshots')
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies (locked)
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Report Node runtime
+        run: node --version
+
+      - name: Recapture visual baselines
+        run: npx playwright test tests/e2e/visual-baseline.spec.ts --update-snapshots
+
+      # Candidate baselines for human review. Never committed by the workflow.
+      - name: Upload recaptured snapshots
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-2022-visual-snapshots
+          path: tests/e2e/visual-baseline.spec.ts-snapshots/
+          if-no-files-found: warn
