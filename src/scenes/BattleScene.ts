@@ -17,6 +17,7 @@ import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from './battleLayou
 import { sanitizeInsets, cssInsetsToGame, clampInsetsToViewport } from './battleLayout';
 import type { BattleLayout, ViewportInput } from './battleLayout';
 import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
+import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
 
 const COLOR_HEX: Record<ElementColor, number> = {
@@ -26,22 +27,10 @@ const COLOR_HEX: Record<ElementColor, number> = {
   blue: 0x3498db,
 };
 
-// Emoji standing in for real icons/art in this vertical-slice prototype.
-// Dynamite and Double Sword get their own distinct glyph (a dynamite
-// stick, crossed swords) rather than doubled text since good single
-// glyphs exist; Double Arrow Bow uses a gun rather than a doubled bow.
-const TILE_LABEL: Record<SpecialTileType, string> = {
-  bomb: '💣',
-  sword: '🗡️',
-  bow: '🏹',
-  dynamite: '🧨',
-  doubleSword: '⚔️',
-  doubleArrowBow: '🔫',
-};
-
-// The portal's own icon — a rainbow bridge between colors, distinct
-// from all six special-tile emoji above.
-const PORTAL_LABEL = '🌈';
+// Special-tile and portal glyphs are drawn by the deterministic, project-owned
+// vector icon renderer in ./specialTileIcons (no system font / emoji), so they
+// rasterize identically on every platform. See
+// docs/superpowers/plans/2026-07-14-special-tile-icons-decision.md.
 
 // Test-only surface for Playwright, active only behind `?debug=1` — never
 // touched by real gameplay code. See
@@ -400,19 +389,11 @@ export class BattleScene extends Phaser.Scene {
       } else if (content.type === 'special') {
         graphics.fillStyle(0x888888, 1);
         graphics.fillCircle(x, y, radius);
-        const label = this.add.text(x - 10, y - 11, TILE_LABEL[content.tile], {
-          fontSize: '18px',
-          color: '#000000',
-        });
-        this.boardLayer.add(label);
+        drawSpecialTileIcon(this, this.boardLayer, content.tile, { x, y }, radius);
       } else if (content.type === 'portal') {
         graphics.fillStyle(0xaa66ff, 1);
         graphics.fillCircle(x, y, radius);
-        const label = this.add.text(x - 10, y - 11, PORTAL_LABEL, {
-          fontSize: '18px',
-          color: '#000000',
-        });
-        this.boardLayer.add(label);
+        drawSpecialTileIcon(this, this.boardLayer, 'portal', { x, y }, radius);
       }
     }
   }
