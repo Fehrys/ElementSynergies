@@ -18,6 +18,15 @@ export function parseArtGuides(search: string): boolean {
   return new URLSearchParams(search).get('artGuides') === '1';
 }
 
+// Lot 1 environment asset-slot overlay flag (&assetSlots=1). Parsed on its
+// own here; it only takes effect when the combatBackground review mode is ALSO
+// active — BattleScene enforces that conjunction, so the flag alone can never
+// draw anything in normal play. See
+// docs/superpowers/specs/2026-07-14-lot-01-environment-production-setup-design.md.
+export function parseAssetSlots(search: string): boolean {
+  return new URLSearchParams(search).get('assetSlots') === '1';
+}
+
 export interface CoverFit {
   sourceWidth: number;
   sourceHeight: number;

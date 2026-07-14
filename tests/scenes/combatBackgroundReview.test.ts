@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseArtReviewMode, parseArtGuides, computeCoverFit } from '../../src/scenes/combatBackgroundReview';
+import {
+  parseArtReviewMode,
+  parseArtGuides,
+  parseAssetSlots,
+  computeCoverFit,
+} from '../../src/scenes/combatBackgroundReview';
 
 describe('parseArtReviewMode', () => {
   it('activates combatBackground mode from the exact query value', () => {
@@ -32,6 +37,20 @@ describe('parseArtGuides', () => {
     expect(parseArtGuides('?artGuides=0')).toBe(false);
     expect(parseArtGuides('?artGuides=true')).toBe(false);
     expect(parseArtGuides('?artReview=combatBackground')).toBe(false);
+  });
+});
+
+describe('parseAssetSlots', () => {
+  it('is true only for the exact value "1"', () => {
+    expect(parseAssetSlots('?assetSlots=1')).toBe(true);
+    expect(parseAssetSlots('?seed=1&artReview=combatBackground&assetSlots=1')).toBe(true);
+  });
+
+  it('is false for absent, empty, or other values', () => {
+    expect(parseAssetSlots('')).toBe(false);
+    expect(parseAssetSlots('?assetSlots=0')).toBe(false);
+    expect(parseAssetSlots('?assetSlots=true')).toBe(false);
+    expect(parseAssetSlots('?artReview=combatBackground')).toBe(false);
   });
 });
 
