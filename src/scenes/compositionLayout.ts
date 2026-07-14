@@ -31,6 +31,17 @@ export interface LayoutRegions {
   boardWidthBand: { left: number; right: number; width: number };
 }
 
+// Vertical composition band ranges as [fromPct, toPct] pairs. Supplied by the
+// caller (battleLayout, from BattleLayoutPolicy) so this module holds no copy of
+// any responsive value — BattleLayoutPolicy is the single source of truth.
+export interface BandRanges {
+  topHud: [number, number];
+  monster: [number, number];
+  hero: [number, number];
+  board: [number, number];
+  safeBottom: [number, number];
+}
+
 export interface PlaceholderLayout {
   monster: Rect;
   heroes: Rect[];
@@ -41,23 +52,27 @@ export interface BossHudLayout {
   bar: Rect;
 }
 
-export function computeLayoutRegions(width: number, height: number): LayoutRegions {
+export function computeLayoutRegions(
+  width: number,
+  height: number,
+  bands: BandRanges,
+  tableWidthFraction: number,
+): LayoutRegions {
   const band = (fromPct: number, toPct: number): Band => {
     const top = height * (fromPct / 100);
     const bottom = height * (toPct / 100);
     return { top, bottom, height: bottom - top };
   };
 
-  // Blueprint: "the board should normally use at least 88% of the safe width."
-  const boardWidth = width * 0.88;
+  const boardWidth = width * tableWidthFraction;
   const left = (width - boardWidth) / 2;
 
   return {
-    topHud: band(0, 8),
-    monster: band(8, 34),
-    hero: band(34, 46),
-    board: band(46, 93),
-    safeBottom: band(93, 100),
+    topHud: band(bands.topHud[0], bands.topHud[1]),
+    monster: band(bands.monster[0], bands.monster[1]),
+    hero: band(bands.hero[0], bands.hero[1]),
+    board: band(bands.board[0], bands.board[1]),
+    safeBottom: band(bands.safeBottom[0], bands.safeBottom[1]),
     boardWidthBand: { left, right: left + boardWidth, width: boardWidth },
   };
 }

@@ -9,6 +9,14 @@ import {
   CANVAS_HEIGHT,
   Band,
 } from '../../src/scenes/compositionLayout';
+import { DEFAULT_BATTLE_LAYOUT_POLICY } from '../../src/scenes/battleLayout';
+
+// compositionLayout no longer holds its own copy of the composition ranges —
+// BattleLayoutPolicy is the single source of truth. Tests supply the same
+// canonical ranges the production path does, via this thin wrapper.
+const BANDS = DEFAULT_BATTLE_LAYOUT_POLICY.bands;
+const TABLE_WIDTH_FRACTION = DEFAULT_BATTLE_LAYOUT_POLICY.tableWidthFraction;
+const regions = (width: number, height: number) => computeLayoutRegions(width, height, BANDS, TABLE_WIDTH_FRACTION);
 
 // Region math is proportional (height * pct), so results carry benign
 // floating-point noise (e.g. 187.20000000000002). Assert with tolerance.
@@ -19,7 +27,7 @@ function expectBand(b: Band, top: number, bottom: number): void {
 }
 
 describe('computeLayoutRegions', () => {
-  const r = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
 
   it('matches the blueprint percentage ranges for the fixed canvas', () => {
     expectBand(r.topHud, 0, 57.6);
@@ -45,14 +53,33 @@ describe('computeLayoutRegions', () => {
   });
 
   it('scales proportionally for a different canvas size', () => {
-    const big = computeLayoutRegions(960, 1440);
+    const big = regions(960, 1440);
     expect(big.board.top).toBeCloseTo(1440 * 0.46, 5);
     expect(big.board.bottom).toBeCloseTo(1440 * 0.93, 5);
   });
 });
 
+describe('computeLayoutRegions — explicit band ranges / tableWidthFraction params', () => {
+  it('honors an alternate table width fraction', () => {
+    const r = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT, BANDS, 0.5);
+    expect(r.boardWidthBand.width).toBeCloseTo(240, 5); // 480 * 0.5
+    expect(r.boardWidthBand.left).toBeCloseTo(120, 5); // centered: (480-240)/2
+  });
+
+  it('honors alternate band ranges', () => {
+    const r = computeLayoutRegions(
+      CANVAS_WIDTH,
+      CANVAS_HEIGHT,
+      { topHud: [0, 10], monster: [10, 40], hero: [40, 50], board: [50, 95], safeBottom: [95, 100] },
+      0.88,
+    );
+    expectBand(r.topHud, 0, 72); // 720 * 0.10
+    expectBand(r.board, 360, 684); // 720 * [0.50, 0.95]
+  });
+});
+
 describe('computePlaceholderLayout', () => {
-  const p = computePlaceholderLayout(computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT));
+  const p = computePlaceholderLayout(regions(CANVAS_WIDTH, CANVAS_HEIGHT));
 
   it('places a dominant monster centered in the monster band', () => {
     expect(p.monster.x).toBeCloseTo(150, 5);
@@ -78,7 +105,7 @@ describe('computePlaceholderLayout', () => {
   });
 
   it('grounds each hero so its lower edge overlaps the table rear edge by ~8px', () => {
-    const tableTop = computeTableSpan(computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
+    const tableTop = computeTableSpan(regions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
     expect(tableTop).toBeCloseTo(323.2, 5);
     p.heroes.forEach((h) => {
       expect(h.y + h.height).toBeCloseTo(tableTop + 8, 5); // 331.2
@@ -87,18 +114,18 @@ describe('computePlaceholderLayout', () => {
 });
 
 describe('computeBossHudLayout', () => {
-  const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
-  const hud = computeBossHudLayout(regions);
+  const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const hud = computeBossHudLayout(r);
 
   it('centers the boss HP text above the monster', () => {
-    const monster = computePlaceholderLayout(regions).monster;
+    const monster = computePlaceholderLayout(r).monster;
     expect(hud.text.x).toBeCloseTo(monster.x + monster.width / 2, 5); // 240
     expect(hud.text.x).toBeCloseTo(240, 5);
     expect(hud.text.y).toBeCloseTo(8, 5);
   });
 
   it('derives a centered bar from the monster footprint (monster.width + 60)', () => {
-    const monster = computePlaceholderLayout(regions).monster;
+    const monster = computePlaceholderLayout(r).monster;
     expect(hud.bar.width).toBeCloseTo(monster.width + 60, 5); // 240
     expect(hud.bar.height).toBe(12);
     expect(hud.bar.x).toBeCloseTo(120, 5);
@@ -109,16 +136,16 @@ describe('computeBossHudLayout', () => {
 
   it('keeps the HP presentation inside the topHud band with room before the monster', () => {
     const barBottom = hud.bar.y + hud.bar.height;
-    expect(barBottom).toBeLessThanOrEqual(regions.topHud.bottom);
-    expect(barBottom).toBeLessThan(computePlaceholderLayout(regions).monster.y);
+    expect(barBottom).toBeLessThanOrEqual(r.topHud.bottom);
+    expect(barBottom).toBeLessThan(computePlaceholderLayout(r).monster.y);
   });
 });
 
 describe('computeTableBounds', () => {
-  const regions = computeLayoutRegions(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
   // Tiles are now centered in the table span: bbox top 400, bottom 636.
   const tileBounds = { left: 50, right: 430, top: 400, bottom: 636 };
-  const table = computeTableBounds(regions, tileBounds);
+  const table = computeTableBounds(r, tileBounds);
 
   it('produces the expected connecting-surface bounds for 480x720', () => {
     expect(table.x).toBeCloseTo(28.8, 5);
@@ -128,7 +155,7 @@ describe('computeTableBounds', () => {
   });
 
   it('rises into the hero band so the surface connects heroes to the board', () => {
-    expect(table.y).toBeLessThan(regions.hero.bottom);
+    expect(table.y).toBeLessThan(r.hero.bottom);
   });
 
   it('fully encloses the tile bounding box (art fits around tiles)', () => {
