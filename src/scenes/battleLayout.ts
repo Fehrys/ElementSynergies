@@ -60,6 +60,12 @@ export interface BattleLayoutPolicy {
   // Game units (480-reference frame, scaled like everything else) shaved off the
   // column pitch (colWidth) after scale selection — tile size/hitRadius untouched.
   columnSpacingReduction: number; // 3
+  // Game units of clearance kept between bands.hero.bottom (where heroes are
+  // grounded — unrelated, untouched concept) and the top of the `table`
+  // composition rect below. Without this the table's top edge and the heroes'
+  // feet land on the exact same line, which reads as the table acting as a hard
+  // floor for hero placement instead of two independent composition elements.
+  tableTopGap: number; // 35
   bands: {
     // vertical composition ranges (percent of safeRect height) — single source
     topHud: [number, number]; // [4, 12]
@@ -114,6 +120,7 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   maxBoardScale: 1.4,
   boardVerticalBias: 0.58,
   columnSpacingReduction: 3,
+  tableTopGap: 35,
   bands: {
     // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
     // to align the composition with design/references/combat-background-target.png —
@@ -336,16 +343,19 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     safeBottom: liftBand(regionsLocal.safeBottom),
   };
 
-  // `table` is the lower composition band: full viewport width, starting exactly at
-  // the combat/prep separation line (bands.hero.bottom, already global) and running
-  // to the bottom of the viewport. It no longer tightly encloses the tile bbox — the
-  // board (sized/positioned above) always fits comfortably inside it. See
+  // `table` is the lower composition band: full viewport width, starting
+  // policy.tableTopGap below the combat/prep separation line (bands.hero.bottom,
+  // already global) and running to the bottom of the viewport. The gap keeps the
+  // table's top edge from sitting exactly on the heroes' grounding line — heroes
+  // and the table are two independent composition elements, not one surface
+  // acting as the other's floor. It no longer tightly encloses the tile bbox —
+  // the board (sized/positioned above) always fits comfortably inside it. See
   // docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
   const table: Rect = {
     x: 0,
-    y: bands.hero.bottom,
+    y: bands.hero.bottom + policy.tableTopGap,
     width,
-    height: height - bands.hero.bottom,
+    height: height - bands.hero.bottom - policy.tableTopGap,
   };
 
   const placeholders = computePlaceholderLayout(regionsLocal);

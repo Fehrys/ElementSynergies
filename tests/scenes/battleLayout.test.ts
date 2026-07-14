@@ -203,8 +203,8 @@ describe('computeBattleLayout — synthetic safe-area insets (audit cases)', () 
         expect(b.safeBottom.bottom).toBeCloseTo(L.safeRect.y + L.safeRect.height, 9);
       });
 
-      it('table starts exactly at the combat/prep separation line and reaches the viewport bottom', () => {
-        expect(L.table.y).toBeCloseTo(L.bands.hero.bottom, 9);
+      it('table starts tableTopGap below the combat/prep separation line and reaches the viewport bottom', () => {
+        expect(L.table.y).toBeCloseTo(L.bands.hero.bottom + DEFAULT_BATTLE_LAYOUT_POLICY.tableTopGap, 9);
         expect(L.table.y + L.table.height).toBeCloseTo(L.background.height, 9);
       });
 
@@ -375,6 +375,7 @@ const PRE_REALIGNMENT_POLICY = {
   ...P,
   boardVerticalBias: 0.5,
   columnSpacingReduction: 0,
+  tableTopGap: 0,
   bands: { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
 } as typeof P;
 
@@ -401,11 +402,21 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     expect(after.board.hitRadius).toBe(before.board.hitRadius);
   });
 
-  it('redefines table as the full-width lower composition band starting at the combat/prep separation', () => {
+  it('redefines table as the full-width lower composition band starting tableTopGap below the combat/prep separation', () => {
     expect(after.table.x).toBe(0);
     expect(after.table.width).toBe(after.background.width);
-    expect(after.table.y).toBeCloseTo(after.bands.hero.bottom, 9);
+    expect(after.table.y).toBeCloseTo(after.bands.hero.bottom + P.tableTopGap, 9);
     expect(after.table.y + after.table.height).toBeCloseTo(after.background.height, 9);
+  });
+
+  it('keeps a visible gap between the heroes’ feet and the table’s top edge (two distinct concepts)', () => {
+    // Heroes are grounded on bands.hero.bottom directly (unrelated, untouched
+    // concept — see compositionLayout.ts); the table starts tableTopGap below
+    // that same line, so the two never land on the exact same pixel.
+    for (const h of after.heroes) {
+      expect(h.y + h.height).toBeCloseTo(after.bands.hero.bottom, 6);
+      expect(after.table.y - (h.y + h.height)).toBeCloseTo(P.tableTopGap, 6);
+    }
   });
 
   it('keeps the board perfectly upright — no rotation, no skew, no per-cell deformation', () => {
@@ -441,7 +452,7 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     ]) {
       const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
       expect(L.table.width).toBe(L.background.width);
-      expect(L.table.y).toBeCloseTo(L.bands.hero.bottom, 9);
+      expect(L.table.y).toBeCloseTo(L.bands.hero.bottom + P.tableTopGap, 9);
       expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
       expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
         L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
