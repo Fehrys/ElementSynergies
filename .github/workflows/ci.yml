@@ -107,7 +107,10 @@ jobs:
   # generate canonical windows-2022 candidate baselines from a feature branch.
   # Add the `capture-visual-snapshots` label to the PR to run it.
   capture-visual-snapshots:
-    if: contains(github.event.pull_request.labels.*.name, 'capture-visual-snapshots')
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'capture-visual-snapshots'
     runs-on: windows-2022
 
     steps:
