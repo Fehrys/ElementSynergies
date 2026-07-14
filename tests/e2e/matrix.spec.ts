@@ -171,16 +171,22 @@ test('mobile landscape 844x390: no clip, all cells reachable, precise drag, chro
   }
 
   // Chrome compression: topHud + hero bands shrink, board grows (board reduced last).
-  expect(L.bands.topHud.height / sr.height).toBeLessThan(0.08); // below the 8% nominal
-  expect(L.bands.board.height / sr.height).toBeGreaterThan(0.47); // above the 47% nominal
+  const P = DEFAULT_BATTLE_LAYOUT_POLICY;
+  const nominalHeight = (b: [number, number]): number => (b[1] - b[0]) / 100;
+  expect(L.bands.topHud.height / sr.height).toBeLessThan(nominalHeight(P.bands.topHud));
+  expect(L.bands.board.height / sr.height).toBeGreaterThan(nominalHeight(P.bands.board));
 
   // No critical overlap: heroes sit above the board; board inside the column.
   for (const h of L.heroes) expect(h.y + h.height).toBeLessThanOrEqual(tb.y + EPS);
   expect(tb.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - EPS);
   expect(tb.x + tb.width).toBeLessThanOrEqual(L.gameplayColumn.x + L.gameplayColumn.width + EPS);
 
-  // Radii obtained: visualRadius isotropic and usable, hitRadius floored + capped.
-  expect(L.board.visualRadius).toBeCloseTo(L.board.colWidth * (22 / 56), 6);
+  // Radii obtained: visualRadius isotropic (recovered from rowHeight — colWidth is
+  // deliberately NOT isotropic with it since the column-pitch reduction, M#4),
+  // hitRadius floored + capped.
+  const scale = L.board.rowHeight / 48;
+  expect(L.board.visualRadius).toBeCloseTo(22 * scale, 6);
+  expect(L.board.colWidth).toBeCloseTo(56 * scale - P.columnSpacingReduction * scale, 6);
   expect(L.board.visualRadius).toBeGreaterThan(0);
   expect(L.board.hitRadius).toBeGreaterThan(0);
   expect(L.board.hitRadius).toBeLessThan(L.board.rowHeight / 2);

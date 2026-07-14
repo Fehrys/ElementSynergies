@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   computeLayoutRegions,
   computePlaceholderLayout,
-  computeTableBounds,
   computeTableSpan,
   computeBossHudLayout,
   CANVAS_WIDTH,
@@ -29,11 +28,11 @@ function expectBand(b: Band, top: number, bottom: number): void {
 describe('computeLayoutRegions', () => {
   const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  it('matches the blueprint percentage ranges for the fixed canvas', () => {
-    expectBand(r.topHud, 0, 57.6);
-    expectBand(r.monster, 57.6, 244.8);
-    expectBand(r.hero, 244.8, 331.2);
-    expectBand(r.board, 331.2, 669.6);
+  it('matches the policy percentage ranges for the fixed canvas', () => {
+    expectBand(r.topHud, 28.8, 86.4);
+    expectBand(r.monster, 86.4, 273.6);
+    expectBand(r.hero, 273.6, 360);
+    expectBand(r.board, 360, 669.6);
     expectBand(r.safeBottom, 669.6, 720);
   });
 
@@ -54,7 +53,7 @@ describe('computeLayoutRegions', () => {
 
   it('scales proportionally for a different canvas size', () => {
     const big = regions(960, 1440);
-    expect(big.board.top).toBeCloseTo(1440 * 0.46, 5);
+    expect(big.board.top).toBeCloseTo(1440 * 0.5, 5);
     expect(big.board.bottom).toBeCloseTo(1440 * 0.93, 5);
   });
 });
@@ -83,7 +82,7 @@ describe('computePlaceholderLayout', () => {
 
   it('places a dominant monster centered in the monster band', () => {
     expect(p.monster.x).toBeCloseTo(150, 5);
-    expect(p.monster.y).toBeCloseTo(81.2, 5);
+    expect(p.monster.y).toBeCloseTo(110, 5);
     expect(p.monster.width).toBe(180);
     expect(p.monster.height).toBe(140);
   });
@@ -106,9 +105,9 @@ describe('computePlaceholderLayout', () => {
 
   it('grounds each hero so its lower edge overlaps the table rear edge by ~8px', () => {
     const tableTop = computeTableSpan(regions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
-    expect(tableTop).toBeCloseTo(323.2, 5);
+    expect(tableTop).toBeCloseTo(352, 5);
     p.heroes.forEach((h) => {
-      expect(h.y + h.height).toBeCloseTo(tableTop + 8, 5); // 331.2
+      expect(h.y + h.height).toBeCloseTo(tableTop + 8, 5); // 360
     });
   });
 });
@@ -121,7 +120,7 @@ describe('computeBossHudLayout', () => {
     const monster = computePlaceholderLayout(r).monster;
     expect(hud.text.x).toBeCloseTo(monster.x + monster.width / 2, 5); // 240
     expect(hud.text.x).toBeCloseTo(240, 5);
-    expect(hud.text.y).toBeCloseTo(8, 5);
+    expect(hud.text.y).toBeCloseTo(36.8, 5);
   });
 
   it('derives a centered bar from the monster footprint (monster.width + 60)', () => {
@@ -129,7 +128,7 @@ describe('computeBossHudLayout', () => {
     expect(hud.bar.width).toBeCloseTo(monster.width + 60, 5); // 240
     expect(hud.bar.height).toBe(12);
     expect(hud.bar.x).toBeCloseTo(120, 5);
-    expect(hud.bar.y).toBeCloseTo(36, 5);
+    expect(hud.bar.y).toBeCloseTo(64.8, 5);
     // Bar is centered on the same axis as the text.
     expect(hud.bar.x + hud.bar.width / 2).toBeCloseTo(hud.text.x, 5);
   });
@@ -141,27 +140,7 @@ describe('computeBossHudLayout', () => {
   });
 });
 
-describe('computeTableBounds', () => {
-  const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
-  // Tiles are now centered in the table span: bbox top 400, bottom 636.
-  const tileBounds = { left: 50, right: 430, top: 400, bottom: 636 };
-  const table = computeTableBounds(r, tileBounds);
-
-  it('produces the expected connecting-surface bounds for 480x720', () => {
-    expect(table.x).toBeCloseTo(28.8, 5);
-    expect(table.y).toBeCloseTo(323.2, 5);
-    expect(table.width).toBeCloseTo(422.4, 5);
-    expect(table.height).toBeCloseTo(388.8, 5);
-  });
-
-  it('rises into the hero band so the surface connects heroes to the board', () => {
-    expect(table.y).toBeLessThan(r.hero.bottom);
-  });
-
-  it('fully encloses the tile bounding box (art fits around tiles)', () => {
-    expect(table.x).toBeLessThan(tileBounds.left);
-    expect(table.x + table.width).toBeGreaterThan(tileBounds.right);
-    expect(table.y).toBeLessThan(tileBounds.top);
-    expect(table.y + table.height).toBeGreaterThan(tileBounds.bottom);
-  });
-});
+// The `table` composition rectangle (full-viewport-width lower band, from the
+// combat/prep separation line to the bottom of the viewport) is now assembled
+// directly in battleLayout.ts from `bands.hero.bottom` — see
+// battleLayout.test.ts's "table — lower composition band" suite.
