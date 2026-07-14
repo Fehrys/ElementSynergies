@@ -47,6 +47,15 @@ export interface BoardGeometryInput {
   targetMinVisualRadius: number;
   targetMinHitRadius: number;
   maxBoardScale: number;
+  // 0 = hugs the top of tableSpan, 0.5 = centered (the historical behavior), 1 = hugs
+  // the bottom. Applied AFTER scale selection — never influences horizontalFit/
+  // verticalFit/scale, only where the already-sized bbox sits inside its span.
+  boardVerticalBias: number;
+  // Game units (480-reference frame) shaved off colWidth AFTER scale selection, then
+  // scaled by the same isotropic `scale` as everything else. Purely tightens the
+  // honeycomb's horizontal pitch — rowHeight/visualRadius/hitRadius (and therefore tile
+  // size and the scale-selection math itself) are never touched by this value.
+  columnSpacingReduction: number;
 }
 
 // Derives the single isotropic scale that fits the honeycomb inside the column
@@ -61,14 +70,19 @@ export function computeBoardGeometry(input: BoardGeometryInput): BoardGeometry {
   const verticalFit = (tableSpanHeight * input.boardHeightFraction) / BBOX_HEIGHT;
   const scale = Math.min(horizontalFit, verticalFit, input.maxBoardScale); // never anisotropic
 
-  const colWidth = COL_WIDTH * scale;
+  // Column pitch is tightened AFTER scale selection, so it never feeds back into
+  // horizontalFit/verticalFit/scale — rowHeight and visualRadius stay exactly the
+  // isotropic scale, only the horizontal step between columns shrinks.
+  const colWidth = COL_WIDTH * scale - input.columnSpacingReduction * scale;
   const rowHeight = ROW_HEIGHT * scale;
   const visualRadius = STONE_RADIUS * scale; // SAME isotropic factor — NEVER floored independently
   const scaledBboxW = 6 * colWidth + 2 * visualRadius;
   const scaledBboxH = 4 * rowHeight + 2 * visualRadius;
 
   const originX = Math.round(input.column.x + (input.column.width - scaledBboxW) / 2 + visualRadius);
-  const originY = Math.round(input.tableSpan.top + (tableSpanHeight - scaledBboxH) / 2 + visualRadius);
+  const originY = Math.round(
+    input.tableSpan.top + (tableSpanHeight - scaledBboxH) * input.boardVerticalBias + visualRadius,
+  );
 
   const minCenterDistance = rowHeight; // proven min for this honeycomb (vertical same-column)
   const maximumHitRadius = minCenterDistance / 2 - EPSILON;

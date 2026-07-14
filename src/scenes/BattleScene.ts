@@ -538,11 +538,11 @@ export class BattleScene extends Phaser.Scene {
     this.environmentContainer.add(g);
   }
 
-  // Persistent preparation-table surface, drawn ONCE in create(). Lives in
-  // its own container below the tile layer; drawBoard() never touches it, so
-  // rebuilding tiles can never destroy the table (a persistent layer). The
-  // footprint is derived from the real tile bounds — the art fits the engine,
-  // not the reverse.
+  // Persistent lower-composition-band placeholder, drawn ONCE in create(). Lives in
+  // its own container below the tile layer; drawBoard() never touches it. Since
+  // 2026-07-14 `layout.table` is a full-bleed rect from the combat/prep separation
+  // line to the bottom of the viewport (see battleLayout.ts), not a tile-hugging box,
+  // so it's rendered as a flat full-width panel rather than a tile-fitted rounded card.
   private drawTable(): void {
     this.tableContainer.removeAll(true); // idempotent: safe to redraw on reflow
     // Art review mode masks the full brown table placeholder: the master
@@ -551,11 +551,11 @@ export class BattleScene extends Phaser.Scene {
     const t = this.activeLayout.table;
     const g = this.add.graphics();
     g.fillStyle(0x6b4a30, 1);
-    g.fillRoundedRect(t.x, t.y, t.width, t.height, 24);
+    g.fillRect(t.x, t.y, t.width, t.height);
     // A slightly darker rear-edge band to hint thickness/depth — still flat,
     // no gradient/asset.
     g.fillStyle(0x543a25, 1);
-    g.fillRoundedRect(t.x, t.y, t.width, 18, 9);
+    g.fillRect(t.x, t.y, t.width, 18);
     this.tableContainer.add(g);
   }
 
