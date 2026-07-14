@@ -60,6 +60,10 @@ export interface BattleLayoutPolicy {
   // Game units (480-reference frame, scaled like everything else) shaved off the
   // column pitch (colWidth) after scale selection — tile size/hitRadius untouched.
   columnSpacingReduction: number; // 3
+  // Game units (480-reference frame, scaled like columnSpacingReduction) the tile
+  // grid is nudged UP after boardVerticalBias, so it sits correctly inside the
+  // cutting board art. Fine-tuning only — never affects scale selection/tile size.
+  boardVerticalOffset: number; // 14
   // Game units of clearance kept between bands.hero.bottom (where heroes are
   // grounded — unrelated, untouched concept) and the top of the `table`
   // composition rect below. Without this the table's top edge and the heroes'
@@ -120,6 +124,7 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   maxBoardScale: 1.4,
   boardVerticalBias: 0.58,
   columnSpacingReduction: 3,
+  boardVerticalOffset: 14,
   tableTopGap: 35,
   bands: {
     // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
@@ -212,11 +217,13 @@ export function resolveBandRanges(policy: BattleLayoutPolicy, safeHeight: number
 export function resolveBoardGeometryInput(
   column: Rect,
   tableSpan: { top: number; bottom: number },
+  heroBottom: number,
   policy: BattleLayoutPolicy,
 ): BoardGeometryInput {
   return {
     column,
     tableSpan,
+    heroBottom,
     tileWidthFraction: resolveTileWidthFraction(column.width, policy),
     boardHeightFraction: policy.boardHeightFraction,
     targetMinVisualRadius: policy.targetMinVisualRadius,
@@ -224,6 +231,7 @@ export function resolveBoardGeometryInput(
     maxBoardScale: policy.maxBoardScale,
     boardVerticalBias: policy.boardVerticalBias,
     columnSpacingReduction: policy.columnSpacingReduction,
+    boardVerticalOffset: policy.boardVerticalOffset,
   };
 }
 
@@ -320,9 +328,15 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   );
   const tableSpanLocal = computeTableSpan(provisionalRegions);
   const tableSpanGlobal = { top: tableSpanLocal.top + vOff, bottom: tableSpanLocal.bottom + vOff };
+  // provisionalRegions.hero is already final (vertical bands don't depend on the
+  // table WIDTH fraction resolved below), so this is safe to use as the real
+  // heroBottom the board's upward nudge must never rise above.
+  const heroBottomGlobal = provisionalRegions.hero.bottom + vOff;
   // Board geometry works entirely in GLOBAL space (global column + global table
   // span), so board.tileBounds/origin are already global.
-  const board = computeBoardGeometry(resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, policy));
+  const board = computeBoardGeometry(
+    resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, heroBottomGlobal, policy),
+  );
 
   // boardWidthBand (drives heroes/monster centering below) encloses the board bbox +
   // a minimum padding each side. Below the policy fraction (wide/desktop) the 0.88

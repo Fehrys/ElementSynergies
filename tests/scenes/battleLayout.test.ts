@@ -23,11 +23,12 @@ describe('computeBattleLayout — 480×720 baseline neutrality', () => {
     expect(L.gameplayColumn.x).toBe(0);
   });
   // 2026-07-14: no longer pixel-identical to the pre-realignment legacy values —
-  // boardVerticalBias (0.58) nudges the board down inside tableSpan, and
-  // columnSpacingReduction (3 reference px) tightens colWidth (and therefore
-  // tileBounds.width/x). See align-layout-to-combat-background-design.md.
+  // boardVerticalBias (0.58) nudges the board down inside tableSpan, then
+  // boardVerticalOffset (14) nudges it back up to sit correctly inside the cutting
+  // board art, and columnSpacingReduction (3 reference px) tightens colWidth (and
+  // therefore tileBounds.width/x). See align-layout-to-combat-background-design.md.
   it('reproduces the realigned board tile bounds', () => {
-    expect(L.board.tileBounds).toEqual({ x: 59, y: 424, width: 362, height: 236 });
+    expect(L.board.tileBounds).toEqual({ x: 59, y: 410, width: 362, height: 236 });
   });
   it('keeps distinct widths separate', () => {
     expect(L.gameplayColumn.width).toBe(480); // column
@@ -375,6 +376,7 @@ const PRE_REALIGNMENT_POLICY = {
   ...P,
   boardVerticalBias: 0.5,
   columnSpacingReduction: 0,
+  boardVerticalOffset: 0,
   tableTopGap: 0,
   bands: { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
 } as typeof P;
@@ -400,6 +402,24 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     expect(after.board.rowHeight).toBe(before.board.rowHeight);
     expect(after.board.visualRadius).toBe(before.board.visualRadius);
     expect(after.board.hitRadius).toBe(before.board.hitRadius);
+  });
+
+  it('nudges the grid up by exactly boardVerticalOffset (at scale 1) to sit correctly in the cutting board art', () => {
+    const withoutOffset = computeBattleLayout(input, { ...P, boardVerticalOffset: 0 });
+    expect(after.board.tileBounds.y).toBeCloseTo(withoutOffset.board.tileBounds.y - P.boardVerticalOffset, 6);
+    // Never affects tile size / scale selection.
+    expect(after.board.visualRadius).toBe(withoutOffset.board.visualRadius);
+    expect(after.board.tileBounds.width).toBe(withoutOffset.board.tileBounds.width);
+  });
+
+  it('clamps boardVerticalOffset so the grid never rises above the heroes on a short/compressed viewport (regression)', () => {
+    // 844x390 landscape leaves very little vertical room — a naive unclamped nudge
+    // (and a naive Math.round of the clamp itself) can push the tile bbox's top
+    // above the heroes' feet. Both must be prevented.
+    const L = computeBattleLayout({ width: 844, height: 390, safeInsets: none }, P);
+    for (const h of L.heroes) {
+      expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6);
+    }
   });
 
   it('redefines table as the full-width lower composition band starting tableTopGap below the combat/prep separation', () => {

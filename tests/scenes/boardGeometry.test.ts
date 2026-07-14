@@ -10,8 +10,11 @@ import { mulberry32 } from '../../src/core/rng';
 // current policy bands).
 const column = { x: 0, y: 0, width: 480, height: 720 };
 const tableSpan = { top: 323.2, bottom: 712 };
+// Mirrors the real relationship (tableSpan.top = heroBottom - TABLE_REAR_OVERLAP(8)) —
+// see compositionLayout.ts's computeTableSpan.
+const heroBottom = tableSpan.top + 8;
 // battleLayout resolves the policy into a plain BoardGeometryInput; boardGeometry sees no policy.
-const baseInput = resolveBoardGeometryInput(column, tableSpan, DEFAULT_BATTLE_LAYOUT_POLICY);
+const baseInput = resolveBoardGeometryInput(column, tableSpan, heroBottom, DEFAULT_BATTLE_LAYOUT_POLICY);
 
 describe('computeBoardGeometry — 480 baseline neutrality', () => {
   const g = computeBoardGeometry(baseInput);
@@ -27,15 +30,17 @@ describe('computeBoardGeometry — 480 baseline neutrality', () => {
   it('tightens colWidth by exactly columnSpacingReduction at scale 1', () => {
     expect(g.colWidth).toBe(56 - DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction);
   });
-  it('produces a tile bbox centered in the column and biased down inside tableSpan', () => {
+  it('produces a tile bbox centered in the column, biased down inside tableSpan, then nudged up by boardVerticalOffset', () => {
     const expectedWidth = 6 * g.colWidth + 2 * g.visualRadius;
     expect(g.tileBounds.width).toBeCloseTo(expectedWidth, 6);
     expect(g.tileBounds.x).toBeCloseTo((column.width - expectedWidth) / 2, 6);
     // centered (bias 0.5) would sit at tableSpan.top + (spanHeight - bboxH)/2; bias
-    // 0.58 sits strictly lower than that.
+    // 0.58 sits strictly lower than that, before boardVerticalOffset nudges it back up.
     const spanHeight = tableSpan.bottom - tableSpan.top;
     const centeredY = tableSpan.top + (spanHeight - g.tileBounds.height) / 2;
-    expect(g.tileBounds.y).toBeGreaterThan(centeredY);
+    const biasedY = centeredY + (DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalBias - 0.5) * (spanHeight - g.tileBounds.height);
+    expect(biasedY).toBeGreaterThan(centeredY);
+    expect(g.tileBounds.y).toBeCloseTo(biasedY - DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalOffset, 0);
   });
 });
 
@@ -103,9 +108,11 @@ describe('computeBoardGeometry — narrow-viewport widening stays isotropic and 
   it('keeps visualRadius isotropic and tileBounds inside the column at a widened 320 input', () => {
     const column = { x: 0, y: 0, width: 320, height: 568 };
     const tableSpan = { top: 260, bottom: 560 };
+    const heroBottom = tableSpan.top + 8;
     const g = computeBoardGeometry({
       column,
       tableSpan,
+      heroBottom,
       tileWidthFraction: 0.94, // the saturated widening fraction from resolveTileWidthFraction
       boardHeightFraction: 0.85,
       targetMinVisualRadius: 16,
@@ -113,6 +120,7 @@ describe('computeBoardGeometry — narrow-viewport widening stays isotropic and 
       maxBoardScale: 1.4,
       boardVerticalBias: DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalBias,
       columnSpacingReduction: DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction,
+      boardVerticalOffset: DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalOffset,
     });
     // colWidth is deliberately NOT isotropic with visualRadius since the column-pitch
     // reduction is applied after scale selection — recover scale from rowHeight instead.
