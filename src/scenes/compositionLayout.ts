@@ -116,7 +116,6 @@ export function computePlaceholderLayout(regions: LayoutRegions): PlaceholderLay
   return { monster, heroes };
 }
 
-const MIN_TILE_TOP_PADDING = 20; // min px of clearance above the tile bbox
 const TABLE_REAR_OVERLAP = 8; // px the table rear edge rises into the hero band
 const TABLE_BOTTOM_MARGIN = 8; // px from the safe-area bottom the table front edge ends
 
@@ -130,24 +129,6 @@ export function computeTableSpan(regions: LayoutRegions): { top: number; bottom:
   return {
     top: regions.hero.bottom - TABLE_REAR_OVERLAP,
     bottom: regions.safeBottom.bottom - TABLE_BOTTOM_MARGIN,
-  };
-}
-
-export function computeTableBounds(
-  regions: LayoutRegions,
-  tileBounds: { left: number; right: number; top: number; bottom: number },
-): Rect {
-  const span = computeTableSpan(regions);
-  // The rear edge rises to whichever is HIGHER on screen: a minimum clearance
-  // above the tiles, or just into the hero band — so the surface visually
-  // connects the brigade to the board with no empty gap. Both the top and the
-  // bottom are derived from the composition bands, never a canvas constant.
-  const y = Math.min(tileBounds.top - MIN_TILE_TOP_PADDING, span.top);
-  return {
-    x: regions.boardWidthBand.left,
-    y,
-    width: regions.boardWidthBand.width,
-    height: span.bottom - y,
   };
 }
 

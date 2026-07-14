@@ -9,7 +9,6 @@ import { computeBoardGeometry, type BoardGeometry, type BoardGeometryInput } fro
 import {
   computeLayoutRegions,
   computePlaceholderLayout,
-  computeTableBounds,
   computeTableSpan,
   computeBossHudLayout,
 } from './compositionLayout';
@@ -54,12 +53,29 @@ export interface BattleLayoutPolicy {
   targetMinVisualRadius: number; // 16 — a policy TARGET, not a floor
   targetMinHitRadius: number; // 20
   maxBoardScale: number; // 1.4 — cap on upscale (desktop); baseline still binds at 1
+  // Where the board sits inside its vertical tableSpan: 0 = span's top, 0.5 = centered
+  // (pre-2026-07-14 behavior), 1 = span's bottom. Applied strictly after scale
+  // selection — see boardGeometry.computeBoardGeometry.
+  boardVerticalBias: number; // 0.58 — nudges the board down inside its span
+  // Game units (480-reference frame, scaled like everything else) shaved off the
+  // column pitch (colWidth) after scale selection — tile size/hitRadius untouched.
+  columnSpacingReduction: number; // 3
+  // Game units (480-reference frame, scaled like columnSpacingReduction) the tile
+  // grid is nudged UP after boardVerticalBias, so it sits correctly inside the
+  // cutting board art. Fine-tuning only — never affects scale selection/tile size.
+  boardVerticalOffset: number; // 14
+  // Game units of clearance kept between bands.hero.bottom (where heroes are
+  // grounded — unrelated, untouched concept) and the top of the `table`
+  // composition rect below. Without this the table's top edge and the heroes'
+  // feet land on the exact same line, which reads as the table acting as a hard
+  // floor for hero placement instead of two independent composition elements.
+  tableTopGap: number; // 35
   bands: {
     // vertical composition ranges (percent of safeRect height) — single source
-    topHud: [number, number]; // [0, 8]
-    monster: [number, number]; // [8, 34]
-    hero: [number, number]; // [34, 46]
-    board: [number, number]; // [46, 93]
+    topHud: [number, number]; // [4, 12]
+    monster: [number, number]; // [12, 38]
+    hero: [number, number]; // [38, 50]
+    board: [number, number]; // [50, 93]
     safeBottom: [number, number]; // [93, 100]
   };
 }
@@ -106,11 +122,18 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   targetMinVisualRadius: 16,
   targetMinHitRadius: 20,
   maxBoardScale: 1.4,
+  boardVerticalBias: 0.58,
+  columnSpacingReduction: 3,
+  boardVerticalOffset: 14,
+  tableTopGap: 35,
   bands: {
-    topHud: [0, 8],
-    monster: [8, 34],
-    hero: [34, 46],
-    board: [46, 93],
+    // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
+    // to align the composition with design/references/combat-background-target.png —
+    // see docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
+    topHud: [4, 12],
+    monster: [12, 38],
+    hero: [38, 50],
+    board: [50, 93],
     safeBottom: [93, 100],
   },
 };
@@ -194,16 +217,21 @@ export function resolveBandRanges(policy: BattleLayoutPolicy, safeHeight: number
 export function resolveBoardGeometryInput(
   column: Rect,
   tableSpan: { top: number; bottom: number },
+  heroBottom: number,
   policy: BattleLayoutPolicy,
 ): BoardGeometryInput {
   return {
     column,
     tableSpan,
+    heroBottom,
     tileWidthFraction: resolveTileWidthFraction(column.width, policy),
     boardHeightFraction: policy.boardHeightFraction,
     targetMinVisualRadius: policy.targetMinVisualRadius,
     targetMinHitRadius: policy.targetMinHitRadius,
     maxBoardScale: policy.maxBoardScale,
+    boardVerticalBias: policy.boardVerticalBias,
+    columnSpacingReduction: policy.columnSpacingReduction,
+    boardVerticalOffset: policy.boardVerticalOffset,
   };
 }
 
@@ -300,16 +328,24 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   );
   const tableSpanLocal = computeTableSpan(provisionalRegions);
   const tableSpanGlobal = { top: tableSpanLocal.top + vOff, bottom: tableSpanLocal.bottom + vOff };
+  // provisionalRegions.hero is already final (vertical bands don't depend on the
+  // table WIDTH fraction resolved below), so this is safe to use as the real
+  // heroBottom the board's upward nudge must never rise above.
+  const heroBottomGlobal = provisionalRegions.hero.bottom + vOff;
   // Board geometry works entirely in GLOBAL space (global column + global table
   // span), so board.tileBounds/origin are already global.
-  const board = computeBoardGeometry(resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, policy));
+  const board = computeBoardGeometry(
+    resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, heroBottomGlobal, policy),
+  );
 
-  // Table encloses the board bbox + a minimum padding each side. Below the policy
-  // fraction (wide/desktop) the 0.88 baseline dominates (neutral at 480, where the
-  // padding requirement is already satisfied); on narrow viewports the padding
-  // requirement dominates but is capped at the full column width.
-  const minTableWidth = board.tileBounds.width + 2 * policy.minimumTablePadding;
-  const paddedFraction = gameplayColumn.width > 0 ? minTableWidth / gameplayColumn.width : policy.tableWidthFraction;
+  // boardWidthBand (drives heroes/monster centering below) encloses the board bbox +
+  // a minimum padding each side. Below the policy fraction (wide/desktop) the 0.88
+  // baseline dominates (neutral at 480, where the padding requirement is already
+  // satisfied); on narrow viewports the padding requirement dominates but is capped
+  // at the full column width. Independent of the `table` composition rect below.
+  const minBoardWidthBand = board.tileBounds.width + 2 * policy.minimumTablePadding;
+  const paddedFraction =
+    gameplayColumn.width > 0 ? minBoardWidthBand / gameplayColumn.width : policy.tableWidthFraction;
   const tableWidthFraction = Math.min(1, Math.max(policy.tableWidthFraction, paddedFraction));
   const regionsLocal = computeLayoutRegions(gameplayColumn.width, safeRect.height, bandRanges, tableWidthFraction);
 
@@ -321,15 +357,20 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     safeBottom: liftBand(regionsLocal.safeBottom),
   };
 
-  // computeTableBounds encloses the tiles, so feed it the board bounds back in
-  // LOCAL coords, then lift the result.
-  const tileBoundsLocal = {
-    left: board.tileBounds.x - hOff,
-    right: board.tileBounds.x + board.tileBounds.width - hOff,
-    top: board.tileBounds.y - vOff,
-    bottom: board.tileBounds.y + board.tileBounds.height - vOff,
+  // `table` is the lower composition band: full viewport width, starting
+  // policy.tableTopGap below the combat/prep separation line (bands.hero.bottom,
+  // already global) and running to the bottom of the viewport. The gap keeps the
+  // table's top edge from sitting exactly on the heroes' grounding line — heroes
+  // and the table are two independent composition elements, not one surface
+  // acting as the other's floor. It no longer tightly encloses the tile bbox —
+  // the board (sized/positioned above) always fits comfortably inside it. See
+  // docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
+  const table: Rect = {
+    x: 0,
+    y: bands.hero.bottom + policy.tableTopGap,
+    width,
+    height: height - bands.hero.bottom - policy.tableTopGap,
   };
-  const table = liftRect(computeTableBounds(regionsLocal, tileBoundsLocal));
 
   const placeholders = computePlaceholderLayout(regionsLocal);
   const boss = liftRect(placeholders.monster);

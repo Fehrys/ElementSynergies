@@ -42,11 +42,29 @@ export interface BoardGeometry {
 export interface BoardGeometryInput {
   column: Rect;
   tableSpan: { top: number; bottom: number };
+  // Global y of the hero band's bottom edge (where heroes are grounded) — the true
+  // floor boardVerticalOffset's upward nudge must never rise above, regardless of
+  // how much slack tableSpan.top happens to leave.
+  heroBottom: number;
   tileWidthFraction: number; // resolved by battleLayout.resolveTileWidthFraction (M6 tunes it there)
   boardHeightFraction: number;
   targetMinVisualRadius: number;
   targetMinHitRadius: number;
   maxBoardScale: number;
+  // 0 = hugs the top of tableSpan, 0.5 = centered (the historical behavior), 1 = hugs
+  // the bottom. Applied AFTER scale selection — never influences horizontalFit/
+  // verticalFit/scale, only where the already-sized bbox sits inside its span.
+  boardVerticalBias: number;
+  // Game units (480-reference frame) shaved off colWidth AFTER scale selection, then
+  // scaled by the same isotropic `scale` as everything else. Purely tightens the
+  // honeycomb's horizontal pitch — rowHeight/visualRadius/hitRadius (and therefore tile
+  // size and the scale-selection math itself) are never touched by this value.
+  columnSpacingReduction: number;
+  // Game units (480-reference frame, scaled by `scale` like columnSpacingReduction)
+  // the whole tile grid is nudged UP after boardVerticalBias positions it inside
+  // tableSpan — pure fine-tuning so the grid sits correctly inside the cutting
+  // board art; never affects scale selection or tile size.
+  boardVerticalOffset: number;
 }
 
 // Derives the single isotropic scale that fits the honeycomb inside the column
@@ -61,14 +79,26 @@ export function computeBoardGeometry(input: BoardGeometryInput): BoardGeometry {
   const verticalFit = (tableSpanHeight * input.boardHeightFraction) / BBOX_HEIGHT;
   const scale = Math.min(horizontalFit, verticalFit, input.maxBoardScale); // never anisotropic
 
-  const colWidth = COL_WIDTH * scale;
+  // Column pitch is tightened AFTER scale selection, so it never feeds back into
+  // horizontalFit/verticalFit/scale — rowHeight and visualRadius stay exactly the
+  // isotropic scale, only the horizontal step between columns shrinks.
+  const colWidth = COL_WIDTH * scale - input.columnSpacingReduction * scale;
   const rowHeight = ROW_HEIGHT * scale;
   const visualRadius = STONE_RADIUS * scale; // SAME isotropic factor — NEVER floored independently
   const scaledBboxW = 6 * colWidth + 2 * visualRadius;
   const scaledBboxH = 4 * rowHeight + 2 * visualRadius;
 
   const originX = Math.round(input.column.x + (input.column.width - scaledBboxW) / 2 + visualRadius);
-  const originY = Math.round(input.tableSpan.top + (tableSpanHeight - scaledBboxH) / 2 + visualRadius);
+  // Clamp the upward nudge so the bbox top can never rise above heroBottom — on
+  // short/compressed viewports there may not be a full boardVerticalOffset's worth
+  // of room to give up without pushing the grid up into the hero band above it.
+  // The floor is rounded UP (Math.ceil), not to-nearest: a plain Math.round of the
+  // clamped max can still land up to 0.5px below a fractional floor (nearest-integer
+  // rounding has no notion of "never go below"), which would silently reintroduce
+  // the exact overlap this clamp exists to prevent.
+  const biasedOriginY = input.tableSpan.top + (tableSpanHeight - scaledBboxH) * input.boardVerticalBias + visualRadius;
+  const floorOriginY = input.heroBottom + visualRadius;
+  const originY = Math.max(Math.ceil(floorOriginY), Math.round(biasedOriginY - input.boardVerticalOffset * scale));
 
   const minCenterDistance = rowHeight; // proven min for this honeycomb (vertical same-column)
   const maximumHitRadius = minCenterDistance / 2 - EPSILON;

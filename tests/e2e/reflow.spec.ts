@@ -181,9 +181,9 @@ test('a real mid-session resize reflows on the next frame and keeps clicks accur
   await page.waitForSelector('[data-scene="battle"]');
 
   // Baseline neutrality under the RESIZE transport: at 480x720 the board is still
-  // pixel-for-pixel the legacy geometry.
+  // pixel-for-pixel the realigned (2026-07-14) reference geometry.
   const l480 = await page.evaluate(() => window.__debug!.getBattleLayout());
-  expect(l480.board.tileBounds).toEqual({ x: 50, y: 400, width: 380, height: 236 });
+  expect(l480.board.tileBounds).toEqual({ x: 59, y: 410, width: 362, height: 236 });
 
   // First scoring turn at 480x720.
   const startHp = Number(await page.getAttribute('body', 'data-monster-hp'));

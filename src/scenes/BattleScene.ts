@@ -19,6 +19,14 @@ import type { BattleLayout, ViewportInput } from './battleLayout';
 import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
 import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
+import { parseArtReviewMode, parseArtGuides, computeCoverFit } from './combatBackgroundReview';
+import type { ArtReviewMode } from './combatBackgroundReview';
+import combatBackgroundTargetUrl from '../../design/references/combat-background-target.png?url';
+
+// Temporary art-review-only asset (see
+// docs/superpowers/specs/2026-07-14-combat-background-art-review-design.md).
+// Never loaded/used unless ?artReview=combatBackground is present.
+const ART_REVIEW_BACKGROUND_KEY = 'combat-background-target';
 
 const COLOR_HEX: Record<ElementColor, number> = {
   red: 0xe74c3c,
@@ -45,6 +53,7 @@ export interface DebugApi {
   getLayoutRevision(): number; // increments once per applied reflow
   forceReflow(partial?: Partial<ViewportInput>): void; // one-shot; consumed by the next reflow
   getLayerObjectCounts(): Record<string, number>; // per-layer child counts — the idempotency probe
+  getArtReviewInfo(): { mode: ArtReviewMode; guides: boolean } | null; // art review debug surface
   getSelectionLength(): number; // selected-cell count (0 after a mid-drag cancel)
   getTracePointCount(): number; // drawn trace points (0 after a clear)
 }
@@ -73,6 +82,13 @@ export class BattleScene extends Phaser.Scene {
   private puzzleFeedbackContainer!: Phaser.GameObjects.Container;
   private hudContainer!: Phaser.GameObjects.Container;
   private transientUiContainer!: Phaser.GameObjects.Container;
+  // Art review mode only (see combatBackgroundReview.ts): always created, but
+  // stays empty and unused whenever artReviewMode === 'none'.
+  private artReviewBackgroundContainer!: Phaser.GameObjects.Container;
+  private artGuidesContainer!: Phaser.GameObjects.Container;
+  private artReviewBackgroundSprite?: Phaser.GameObjects.Image;
+  private artReviewMode: ArtReviewMode = 'none';
+  private artGuidesEnabled = false;
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
@@ -107,6 +123,24 @@ export class BattleScene extends Phaser.Scene {
     const gameInsets = cssInsetsToGame(cssInsets, gameSize, canvasRect); // → game units (no-op under RESIZE)
     const safeInsets = clampInsetsToViewport(gameInsets, gameSize.width, gameSize.height);
     return { width: gameSize.width, height: gameSize.height, safeInsets };
+  }
+
+  // Runs before preload()/create(): parses the art-review query flags once,
+  // deterministically, so the mode is known before the first load or layout.
+  init(): void {
+    this.artReviewMode = parseArtReviewMode(window.location.search);
+    this.artGuidesEnabled = parseArtGuides(window.location.search);
+  }
+
+  // Queues the art-review reference image only when the mode is active, so
+  // normal play never loads or references this asset. Phaser's scene
+  // lifecycle blocks create() until the load queue completes, so by the time
+  // create() runs the texture is guaranteed available — no extra "loaded"
+  // signal is needed.
+  preload(): void {
+    if (this.artReviewMode === 'combatBackground') {
+      this.load.image(ART_REVIEW_BACKGROUND_KEY, combatBackgroundTargetUrl);
+    }
   }
 
   create(): void {
@@ -159,9 +193,13 @@ export class BattleScene extends Phaser.Scene {
           puzzleFeedback: this.puzzleFeedbackContainer.length,
           hud: this.hudContainer.length,
           transientUi: this.transientUiContainer.length,
+          artReviewBackground: this.artReviewBackgroundContainer.length,
+          artGuides: this.artGuidesContainer.length,
         }),
         getSelectionLength: () => this.path.length,
         getTracePointCount: () => this.tracePointCount,
+        getArtReviewInfo: () =>
+          this.artReviewMode === 'none' ? null : { mode: this.artReviewMode, guides: this.artGuidesEnabled },
       };
     }
 
@@ -180,6 +218,11 @@ export class BattleScene extends Phaser.Scene {
     this.puzzleFeedbackContainer = this.add.container(0, 0).setDepth(DEPTH.PUZZLE_FEEDBACK);
     this.hudContainer = this.add.container(0, 0).setDepth(DEPTH.HUD);
     this.transientUiContainer = this.add.container(0, 0).setDepth(DEPTH.TRANSIENT_UI);
+    // Art review mode only: created unconditionally (cheap, empty) so normal
+    // play carries the same nine-container structure it always has, plus two
+    // inert containers that only ever receive content when the mode is active.
+    this.artReviewBackgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
+    this.artGuidesContainer = this.add.container(0, 0).setDepth(DEPTH.DEBUG);
 
     this.traceGraphics = this.add.graphics();
     this.puzzleFeedbackContainer.add(this.traceGraphics);
@@ -223,6 +266,16 @@ export class BattleScene extends Phaser.Scene {
     // Lets Playwright wait for/assert on scene state via plain DOM reads,
     // since Phaser renders to canvas and isn't otherwise inspectable.
     document.body.setAttribute('data-scene', 'battle');
+
+    // Art review DOM surface: only present when the mode is active, so normal
+    // play's DOM is completely unaffected. By this point preload() already
+    // blocked until the texture loaded and applyLayout() above already placed
+    // it and drew every gameplay layer, so "ready" can be set unconditionally.
+    if (this.artReviewMode !== 'none') {
+      document.body.setAttribute('data-art-review', this.artReviewMode);
+      document.body.setAttribute('data-art-guides', String(this.artGuidesEnabled));
+      document.body.setAttribute('data-art-review-ready', 'true');
+    }
   }
 
   // Idempotent full redraw of every layer from the given layout. Each draw
@@ -231,11 +284,13 @@ export class BattleScene extends Phaser.Scene {
   private applyLayout(layout: BattleLayout): void {
     this.activeLayout = layout;
     this.drawBackground();
+    this.drawArtReviewBackground(); // no-op unless artReviewMode === 'combatBackground'
     this.drawEnvironment();
     this.drawTable();
     this.drawBoard();
     this.drawHp();
     this.drawCharacterPlaceholders();
+    this.drawArtGuides(); // no-op unless artReviewMode === 'combatBackground' && artGuidesEnabled
     this.drawTraceLine(); // keeps an in-progress trace consistent if not cancelled
     if (isDefeated(this.monster)) this.checkVictory();
   }
@@ -429,6 +484,10 @@ export class BattleScene extends Phaser.Scene {
   // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
   private drawBackground(): void {
     this.backgroundContainer.removeAll(true); // idempotent: safe to redraw on reflow
+    // Art review mode masks the provisional colored background: the review
+    // background (the master reference image) is drawn separately, in its own
+    // container, by drawArtReviewBackground().
+    if (this.artReviewMode === 'combatBackground') return;
     const bg = this.activeLayout.background;
     const g = this.add.graphics();
     const upper = 0x262042; // darker arena wall
@@ -458,6 +517,9 @@ export class BattleScene extends Phaser.Scene {
   // prop touches the tile bounds. Drawn ONCE; never touched by drawBoard().
   private drawEnvironment(): void {
     this.environmentContainer.removeAll(true); // idempotent: safe to redraw on reflow
+    // Art review mode masks the provisional arch/cupboard/cookware silhouettes:
+    // the master reference image already provides this framing.
+    if (this.artReviewMode === 'combatBackground') return;
     const g = this.add.graphics();
     // Off-center alcove arch behind the monster (slightly lighter than the wall).
     g.fillStyle(0x2f2950, 1);
@@ -476,22 +538,91 @@ export class BattleScene extends Phaser.Scene {
     this.environmentContainer.add(g);
   }
 
-  // Persistent preparation-table surface, drawn ONCE in create(). Lives in
-  // its own container below the tile layer; drawBoard() never touches it, so
-  // rebuilding tiles can never destroy the table (a persistent layer). The
-  // footprint is derived from the real tile bounds — the art fits the engine,
-  // not the reverse.
+  // Persistent lower-composition-band placeholder, drawn ONCE in create(). Lives in
+  // its own container below the tile layer; drawBoard() never touches it. Since
+  // 2026-07-14 `layout.table` is a full-bleed rect from the combat/prep separation
+  // line to the bottom of the viewport (see battleLayout.ts), not a tile-hugging box,
+  // so it's rendered as a flat full-width panel rather than a tile-fitted rounded card.
   private drawTable(): void {
     this.tableContainer.removeAll(true); // idempotent: safe to redraw on reflow
+    // Art review mode masks the full brown table placeholder: the master
+    // reference image's chopping board must stay visible behind the board.
+    if (this.artReviewMode === 'combatBackground') return;
     const t = this.activeLayout.table;
     const g = this.add.graphics();
     g.fillStyle(0x6b4a30, 1);
-    g.fillRoundedRect(t.x, t.y, t.width, t.height, 24);
+    g.fillRect(t.x, t.y, t.width, t.height);
     // A slightly darker rear-edge band to hint thickness/depth — still flat,
     // no gradient/asset.
     g.fillStyle(0x543a25, 1);
-    g.fillRoundedRect(t.x, t.y, t.width, 18, 9);
+    g.fillRect(t.x, t.y, t.width, 18);
     this.tableContainer.add(g);
+  }
+
+  // Art review mode only. No-op (and keeps the container empty) unless
+  // artReviewMode === 'combatBackground'. The sprite is created ONCE, lazily,
+  // then only resized/repositioned on every subsequent call — never destroyed
+  // or recreated — so a reflow can never duplicate it. Placement always comes
+  // from computeCoverFit() over the live texture size and the current
+  // activeLayout.background, never a hard-coded number.
+  private drawArtReviewBackground(): void {
+    if (this.artReviewMode !== 'combatBackground') {
+      this.artReviewBackgroundContainer.removeAll(true);
+      this.artReviewBackgroundSprite = undefined;
+      return;
+    }
+    if (!this.artReviewBackgroundSprite) {
+      this.artReviewBackgroundSprite = this.add.image(0, 0, ART_REVIEW_BACKGROUND_KEY).setOrigin(0.5, 0.5);
+      this.artReviewBackgroundContainer.add(this.artReviewBackgroundSprite);
+    }
+    const source = this.textures.get(ART_REVIEW_BACKGROUND_KEY).getSourceImage();
+    const viewport = this.activeLayout.background;
+    const fit = computeCoverFit(source.width, source.height, viewport.width, viewport.height);
+    this.artReviewBackgroundSprite.setDisplaySize(fit.displayWidth, fit.displayHeight);
+    this.artReviewBackgroundSprite.setPosition(fit.x, fit.y);
+    document.body.setAttribute('data-art-background-loaded', 'true');
+    document.body.setAttribute('data-art-review-info', JSON.stringify(fit));
+  }
+
+  // Art review mode only. No-op (and keeps the container empty) unless both
+  // artReviewMode === 'combatBackground' and artGuidesEnabled. Every guide is
+  // read directly from activeLayout — no hand-copied coordinate — so a resize
+  // recomputes them for free through the existing applyLayout()/reflow path.
+  private drawArtGuides(): void {
+    this.artGuidesContainer.removeAll(true); // idempotent: safe to redraw on reflow
+    if (this.artReviewMode !== 'combatBackground' || !this.artGuidesEnabled) return;
+    const layout = this.activeLayout;
+    const g = this.add.graphics();
+
+    const strokeRect = (r: { x: number; y: number; width: number; height: number }): void => {
+      g.strokeRect(r.x, r.y, r.width, r.height);
+    };
+
+    g.lineStyle(1, 0x00ffff, 0.7);
+    strokeRect(layout.boss);
+    for (const hero of layout.heroes) strokeRect(hero);
+    strokeRect(layout.table);
+    strokeRect(layout.board.tileBounds);
+
+    g.lineStyle(1, 0x00ff88, 0.5);
+    strokeRect(layout.gameplayColumn);
+
+    g.lineStyle(1, 0xffff00, 0.35);
+    const col = layout.gameplayColumn;
+    for (const band of Object.values(layout.bands)) {
+      g.lineBetween(col.x, band.top, col.x + col.width, band.top);
+      g.lineBetween(col.x, band.bottom, col.x + col.width, band.bottom);
+    }
+
+    // Very-low-alpha hit-radius guides per cell, kept faint enough not to
+    // compete with the tile art or the other guides.
+    g.lineStyle(1, 0xff00ff, 0.1);
+    for (const cell of getAllCells()) {
+      const p = cellToPixel(layout.board, cell.row, cell.col);
+      g.strokeCircle(p.x, p.y, layout.board.hitRadius);
+    }
+
+    this.artGuidesContainer.add(g);
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM

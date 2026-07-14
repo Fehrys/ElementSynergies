@@ -5,22 +5,42 @@ import { DEFAULT_BATTLE_LAYOUT_POLICY, resolveBoardGeometryInput } from '../../s
 import { HexGrid, fillBoard } from '../../src/core/grid';
 import { mulberry32 } from '../../src/core/rng';
 
-// At the 480 baseline the geometry must reproduce today's boardLayout.ts exactly.
+// A representative 480-wide column/tableSpan pair, used to exercise the geometry
+// math in isolation (battleLayout.test.ts covers the real tableSpan derived from the
+// current policy bands).
 const column = { x: 0, y: 0, width: 480, height: 720 };
 const tableSpan = { top: 323.2, bottom: 712 };
+// Mirrors the real relationship (tableSpan.top = heroBottom - TABLE_REAR_OVERLAP(8)) —
+// see compositionLayout.ts's computeTableSpan.
+const heroBottom = tableSpan.top + 8;
 // battleLayout resolves the policy into a plain BoardGeometryInput; boardGeometry sees no policy.
-const baseInput = resolveBoardGeometryInput(column, tableSpan, DEFAULT_BATTLE_LAYOUT_POLICY);
+const baseInput = resolveBoardGeometryInput(column, tableSpan, heroBottom, DEFAULT_BATTLE_LAYOUT_POLICY);
 
 describe('computeBoardGeometry — 480 baseline neutrality', () => {
   const g = computeBoardGeometry(baseInput);
-  it('reproduces the legacy origin, radius, and tile bounds', () => {
-    expect(g.originX).toBe(72);
-    expect(g.originY).toBe(422);
+  // 2026-07-14: the 480 baseline is no longer pixel-identical to the pre-realignment
+  // legacy values — boardVerticalBias (0.58) nudges the board down inside tableSpan,
+  // and columnSpacingReduction (3 reference px) tightens colWidth. visualRadius,
+  // rowHeight, and hitRadius stay exactly the isotropic scale (untouched by both).
+  it('keeps tile size and hit radius exactly isotropic, unaffected by the realignment', () => {
     expect(g.visualRadius).toBe(22);
     expect(g.hitRadius).toBe(22);
-    expect(g.colWidth).toBe(56);
     expect(g.rowHeight).toBe(48);
-    expect(g.tileBounds).toEqual({ x: 50, y: 400, width: 380, height: 236 });
+  });
+  it('tightens colWidth by exactly columnSpacingReduction at scale 1', () => {
+    expect(g.colWidth).toBe(56 - DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction);
+  });
+  it('produces a tile bbox centered in the column, biased down inside tableSpan, then nudged up by boardVerticalOffset', () => {
+    const expectedWidth = 6 * g.colWidth + 2 * g.visualRadius;
+    expect(g.tileBounds.width).toBeCloseTo(expectedWidth, 6);
+    expect(g.tileBounds.x).toBeCloseTo((column.width - expectedWidth) / 2, 6);
+    // centered (bias 0.5) would sit at tableSpan.top + (spanHeight - bboxH)/2; bias
+    // 0.58 sits strictly lower than that, before boardVerticalOffset nudges it back up.
+    const spanHeight = tableSpan.bottom - tableSpan.top;
+    const centeredY = tableSpan.top + (spanHeight - g.tileBounds.height) / 2;
+    const biasedY = centeredY + (DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalBias - 0.5) * (spanHeight - g.tileBounds.height);
+    expect(biasedY).toBeGreaterThan(centeredY);
+    expect(g.tileBounds.y).toBeCloseTo(biasedY - DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalOffset, 0);
   });
 });
 
@@ -88,16 +108,25 @@ describe('computeBoardGeometry — narrow-viewport widening stays isotropic and 
   it('keeps visualRadius isotropic and tileBounds inside the column at a widened 320 input', () => {
     const column = { x: 0, y: 0, width: 320, height: 568 };
     const tableSpan = { top: 260, bottom: 560 };
+    const heroBottom = tableSpan.top + 8;
     const g = computeBoardGeometry({
       column,
       tableSpan,
+      heroBottom,
       tileWidthFraction: 0.94, // the saturated widening fraction from resolveTileWidthFraction
       boardHeightFraction: 0.85,
       targetMinVisualRadius: 16,
       targetMinHitRadius: 20,
       maxBoardScale: 1.4,
+      boardVerticalBias: DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalBias,
+      columnSpacingReduction: DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction,
+      boardVerticalOffset: DEFAULT_BATTLE_LAYOUT_POLICY.boardVerticalOffset,
     });
-    expect(g.visualRadius).toBeCloseTo(g.colWidth * (22 / 56), 9); // never floored independently
+    // colWidth is deliberately NOT isotropic with visualRadius since the column-pitch
+    // reduction is applied after scale selection — recover scale from rowHeight instead.
+    const scale = g.rowHeight / 48;
+    expect(g.visualRadius).toBeCloseTo(22 * scale, 9); // never floored independently
+    expect(g.colWidth).toBeCloseTo(56 * scale - DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction * scale, 9);
     expect(g.tileBounds.x).toBeGreaterThanOrEqual(column.x - 1e-6);
     expect(g.tileBounds.x + g.tileBounds.width).toBeLessThanOrEqual(column.x + column.width + 1e-6);
     expect(g.hitRadius).toBeLessThan(g.rowHeight / 2);
