@@ -309,13 +309,13 @@ test('battle composition at 480x720 matches the committed baseline', async ({ pa
 });
 ```
 
-Generate the reference on the **CI reference platform** (the pinned CI runner / Playwright Docker image is the single source of truth, because WebGL anti-aliasing varies by GPU/OS):
+Generate the reference on the **canonical CI platform** (GitHub Actions `windows-2022`, Playwright `1.61.1` from `package-lock.json`, Playwright-managed Chromium — the single source of truth, because WebGL/font rasterization varies by OS/GPU; see `2026-07-12-responsive-layout-decisions.md`). Linux is **not** the reference platform:
 
 ```bash
 npx playwright test tests/e2e/visual-baseline.spec.ts --update-snapshots
 ```
 
-`--update-snapshots` is authorized **only** here (initial capture) or, later, after an explicitly validated deliberate visual change — never to silence a diff. **Snapshot contract:** name `battle-480x720.png`; location `tests/e2e/visual-baseline.spec.ts-snapshots/`; reference platform = the CI runner (a local run on another GPU may regenerate *locally* but MUST NOT overwrite the committed CI baseline); tolerance `maxDiffPixelRatio: 0` (if the CI GPU proves noisy, raise to a bounded ≤ 0.002 and still fail on any structural/positional shift); acceptable diff = none; forbidden = any layout/position/size change. Confirm `git status` shows **no `src/` change** — only `playwright.config.ts`, the new spec, and the snapshot.
+`--update-snapshots` is authorized **only** here (initial capture) or, later, after an explicitly validated deliberate visual change — never to silence a diff. **Snapshot contract:** name `battle-480x720.png`; location `tests/e2e/visual-baseline.spec.ts-snapshots/`; reference platform = GitHub Actions `windows-2022` (a local run on another GPU may regenerate *locally* but MUST NOT overwrite the committed CI baseline); tolerance `maxDiffPixelRatio: 0` (if the CI GPU proves noisy, raise to a bounded ≤ 0.002 and still fail on any structural/positional shift); acceptable diff = none; forbidden = any layout/position/size change. Confirm `git status` shows **no `src/` change** — only `playwright.config.ts`, the new spec, and the snapshot.
 
 - [ ] **Step 4: Verify tsc + build unaffected (config + test only, no `src/` change).**
 
@@ -1301,7 +1301,7 @@ git commit -m "feat(responsive): tuned width policy, degradation order, radii, c
 
 - [ ] **Step 2: Add the inset + DPR matrix rows.** Include null insets, a top/bottom-inset case, a lateral-inset case (via `forceReflow`), and one `deviceScaleFactor: 3` context — reusing the M5 assertions across a representative subset.
 
-- [ ] **Step 3: Deterministic screenshots.** Extends the M1 480×720 baseline (already committed and green since M1) to the responsive sizes — M7 is **not** the first automated neutrality check. With `?seed=1`, capture a stable screenshot per key viewport (add 360×640, 768×1024) after waiting on `[data-scene="battle"]` and a settled `getLayoutRevision()`; commit baselines (same `-snapshots/` contract as M1: CI-runner reference platform, bounded tolerance). Assert seed/board invariance (same `getBoard()` across a resize).
+- [ ] **Step 3: Deterministic screenshots.** Extends the M1 480×720 baseline (already committed and green since M1) to the responsive sizes — M7 is **not** the first automated neutrality check. With `?seed=1`, capture a stable screenshot per key viewport (add 360×640, 768×1024) after waiting on `[data-scene="battle"]` and a settled `getLayoutRevision()`; commit baselines (same `-snapshots/` contract as M1: GitHub Actions `windows-2022` reference platform, bounded tolerance). Assert seed/board invariance (same `getBoard()` across a resize).
 
 - [ ] **Step 4: 320×568 decision record.** Assert the M6-fixed `minVisualRadius`/`minHitRadius`/max-safe-width/compression values hold at 320×568; record whether 320 is "supported" or "best-effort" in `2026-07-12-responsive-layout-decisions.md` (and cross-link it from the device checklist).
 

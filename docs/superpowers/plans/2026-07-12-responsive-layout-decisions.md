@@ -126,6 +126,30 @@ Column capped at 560 and centered in the safeRect; background spans the full
 viewport; the table never stretches beyond the column; heroes stay grounded on the
 table rear edge and above the board.
 
+## Canonical visual-regression CI platform (DEFINITIVE)
+
+There is no pre-existing CI reference platform; it is **defined here**:
+
+- **Canonical visual CI platform: GitHub Actions, `runs-on: windows-2022`** (see
+  `.github/workflows/ci.yml`). This is the single source of truth for the visual
+  baselines — WebGL/font rasterization varies by OS/GPU, so exactly one platform is
+  canonical.
+- **Resolved Playwright version: `1.61.1`** (from `package-lock.json`; `^1.48.0` in
+  `package.json` is only the floor), with Playwright-managed Chromium.
+- **The `-win32` snapshot family is canonical.** The three committed snapshots
+  (`battle-480x720-win32.png`, `battle-360x640-win32.png`,
+  `battle-768x1024-win32.png`) are the candidate baselines until validated on the
+  actual GitHub-hosted `windows-2022` runner; a local win32 capture may regenerate
+  *locally* but must not overwrite the committed baseline without that validation.
+- **No Linux snapshots are currently maintained.** Linux is *not* the assumed or
+  natural reference platform. An optional Linux **non-visual** job (tsc/build/unit,
+  or headless e2e without screenshot comparison) may be added later, but it is out of
+  scope for the current snapshot-portability resolution.
+- Baseline (re)capture is a manual, reviewed step: `workflow_dispatch` with
+  `update_visual_snapshots=true` recaptures on the windows-2022 runner and uploads the
+  result as the `windows-2022-visual-snapshots` artifact; the workflow never
+  auto-commits generated snapshots.
+
 ## HiDPI / DPR decision
 
 Two distinct decisions, with different statuses:

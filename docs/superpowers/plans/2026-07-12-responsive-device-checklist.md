@@ -20,6 +20,10 @@
   DPR-1 model; game→client is a no-op; reflow coalescing / mid-drag cancel / RNG
   non-advance — `reflow.spec.ts`.
 - 480×720 / 360×640 / 768×1024 deterministic screenshots — `visual-baseline.spec.ts`.
+  These are the **canonical `-win32` baselines**, validated on GitHub Actions
+  `windows-2022` (Playwright `1.61.1`, Chromium) — the single canonical visual CI
+  platform. No Linux snapshots are maintained. See
+  `2026-07-12-responsive-layout-decisions.md` and `.github/workflows/ci.yml`.
 
 ## Device matrix (minimum)
 
