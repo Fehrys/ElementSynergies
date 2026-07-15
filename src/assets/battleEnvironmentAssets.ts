@@ -29,6 +29,16 @@ export type BattleEnvironmentRole =
 //   board's tile bounds + margins, uniform scale only (cutting board).
 export type EnvironmentResponsivePolicy = 'viewportCover' | 'viewportBand' | 'edgeCluster' | 'gameplayColumnObject';
 
+// Recommended dimensions of the PRODUCTION MASTER file (see ASSET_CONTRACT.md
+// "Production source dimensions"). Purely documentary and testable — never a
+// runtime coordinate, never a reason to load anything. `aspectRatio` is the
+// contract's rounded width/height (consistency unit-tested).
+export interface ProductionSize {
+  width: number;
+  height: number;
+  aspectRatio: number;
+}
+
 export interface BattleEnvironmentAssetDefinition {
   key: string; // future Phaser texture key
   path: string; // final public URL path the produced file will ship at
@@ -38,6 +48,7 @@ export interface BattleEnvironmentAssetDefinition {
   anchor: { x: number; y: number }; // Phaser origin the future sprite will use
   responsivePolicy: EnvironmentResponsivePolicy;
   depth: number; // conceptual layer from scenes/depth.ts (ties within a depth: manifest order = draw order)
+  productionSize: ProductionSize;
 }
 
 const ENVIRONMENT_ROOT = '/assets/battle/environment';
@@ -52,6 +63,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0.5, y: 0 },
     responsivePolicy: 'viewportCover',
     depth: DEPTH.BACKGROUND,
+    productionSize: { width: 1536, height: 1024, aspectRatio: 1.5 },
   },
   {
     key: 'battle-env-floor-stone',
@@ -62,6 +74,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0.5, y: 0 },
     responsivePolicy: 'viewportBand',
     depth: DEPTH.BACKGROUND,
+    productionSize: { width: 1536, height: 512, aspectRatio: 3 },
   },
   {
     key: 'battle-env-left-hearth',
@@ -72,6 +85,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0, y: 1 },
     responsivePolicy: 'edgeCluster',
     depth: DEPTH.ENVIRONMENT,
+    productionSize: { width: 640, height: 1200, aspectRatio: 0.533 },
   },
   {
     key: 'battle-env-right-larder',
@@ -82,6 +96,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 1, y: 1 },
     responsivePolicy: 'edgeCluster',
     depth: DEPTH.ENVIRONMENT,
+    productionSize: { width: 640, height: 1200, aspectRatio: 0.533 },
   },
   {
     key: 'battle-env-prep-table-base',
@@ -92,6 +107,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0, y: 0 },
     responsivePolicy: 'viewportBand',
     depth: DEPTH.TABLE,
+    productionSize: { width: 1536, height: 1280, aspectRatio: 1.2 },
   },
   {
     key: 'battle-env-cutting-board',
@@ -102,6 +118,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0.5, y: 0.5 },
     responsivePolicy: 'gameplayColumnObject',
     depth: DEPTH.TABLE,
+    productionSize: { width: 1434, height: 1000, aspectRatio: 1.434 },
   },
 ];
 

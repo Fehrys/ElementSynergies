@@ -47,6 +47,11 @@ export interface EnvironmentSlotPolicy {
   cuttingBoardSideMarginFraction: number; // 0.07 of tileBounds.width, each side
   cuttingBoardTopMarginFraction: number; // 0.09 of tileBounds.height
   cuttingBoardBottomMarginFraction: number; // 0.13 of tileBounds.height (groove/lip side)
+  // Minimum clearance (logical px) between the stone/wood seam (table.y) and
+  // the board's top edge. When the natural frame would crowd or cross the
+  // seam, the VISUAL slot alone shifts down on Y — the puzzle, tileBounds,
+  // the slot's size/ratio/X and the side margins are never touched.
+  minimumBoardTopGap: number; // 8
 }
 
 export const DEFAULT_ENVIRONMENT_SLOT_POLICY: EnvironmentSlotPolicy = {
@@ -55,6 +60,7 @@ export const DEFAULT_ENVIRONMENT_SLOT_POLICY: EnvironmentSlotPolicy = {
   cuttingBoardSideMarginFraction: 0.07,
   cuttingBoardTopMarginFraction: 0.09,
   cuttingBoardBottomMarginFraction: 0.13,
+  minimumBoardTopGap: 8,
 };
 
 export function placementToRect(p: AssetPlacement): Rect {
@@ -91,6 +97,12 @@ export function computeBattleEnvironmentLayout(
   const bottomMargin = tiles.height * policy.cuttingBoardBottomMarginFraction;
   const boardWidth = tiles.width + 2 * sideMargin;
   const boardHeight = tiles.height + topMargin + bottomMargin;
+  // Y-only clamp: the board frame's top edge must stay at least
+  // minimumBoardTopGap below the stone/wood seam. Priority if a tiny
+  // viewport ever forced a trade-off: puzzle content, then this top gap,
+  // then the bottom lip's visibility (which may crop — gameplay never
+  // shrinks to compensate).
+  const boardTop = Math.max(tiles.y - topMargin, prepTopY + policy.minimumBoardTopGap);
 
   return {
     // Vault / wall / boss alcove: viewport-wide band from the top edge down to
@@ -147,7 +159,7 @@ export function computeBattleEnvironmentLayout(
     // gameplay column. Never follows layout.table's full-bleed width.
     cuttingBoard: {
       x: columnCenterX,
-      y: tiles.y - topMargin + boardHeight / 2,
+      y: boardTop + boardHeight / 2,
       width: boardWidth,
       height: boardHeight,
       originX: 0.5,

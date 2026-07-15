@@ -68,7 +68,9 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
       tiles.height * (1 + p.cuttingBoardTopMarginFraction + p.cuttingBoardBottomMarginFraction),
       9,
     );
-    expect(rect.y).toBeCloseTo(tiles.y - tiles.height * p.cuttingBoardTopMarginFraction, 9);
+    // Natural top, then the Y-only minimumBoardTopGap clamp below the seam.
+    const naturalTop = tiles.y - tiles.height * p.cuttingBoardTopMarginFraction;
+    expect(rect.y).toBeCloseTo(Math.max(naturalTop, layout.table.y + p.minimumBoardTopGap), 9);
     // The margins fully enclose the tiles.
     expect(rect.x).toBeLessThan(tiles.x);
     expect(rect.x + rect.width).toBeGreaterThan(tiles.x + tiles.width);

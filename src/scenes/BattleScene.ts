@@ -21,7 +21,7 @@ import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
 import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } from './combatBackgroundReview';
 import type { ArtReviewMode } from './combatBackgroundReview';
-import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
+import { computeBattleEnvironmentLayout, placementToRect, DEFAULT_ENVIRONMENT_SLOT_POLICY } from './battleEnvironmentLayout';
 import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
 import { BATTLE_ENVIRONMENT_ASSETS } from '../assets/battleEnvironmentAssets';
 import combatBackgroundTargetUrl from '../../design/references/combat-background-target.png?url';
@@ -696,9 +696,11 @@ export class BattleScene extends Phaser.Scene {
         .setOrigin(anchor.x, anchor.y);
       this.assetSlotsContainer.add(label);
     }
-    // Serialized six-slot layout, observable without canvas reads (and without
-    // ?debug=1): e2e cross-checks it against the same pure function in Node.
+    // Serialized six-slot layout + the active slot policy, observable without
+    // canvas reads (and without ?debug=1): e2e cross-checks both against the
+    // same pure module in Node.
     document.body.setAttribute('data-asset-slots-layout', JSON.stringify(env));
+    document.body.setAttribute('data-asset-slots-policy', JSON.stringify(DEFAULT_ENVIRONMENT_SLOT_POLICY));
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM
