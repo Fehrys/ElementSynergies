@@ -20,7 +20,7 @@ Shared rules for every asset in this lot:
   runtime. Design each asset so lateral crop (phones) and lateral extension
   (tablets) are acceptable.
 - **Style**: follow `design/DESIGN_PRINCIPLES.md`, `design/COMBAT_SCREEN.md`,
-  `design/VISUAL_COMPSITION.md`, `design/references/ART_TARGET.md` — warm
+  `design/VISUAL_COMPOSITION.md`, `design/references/ART_TARGET.md` — warm
   handcrafted fantasy kitchen, organic silhouettes, controlled asymmetry,
   aged materials. The master image defines the palette and lighting.
 - **Validation** (all assets): the export placed in the `assetSlots=1` review
@@ -31,6 +31,37 @@ Shared rules for every asset in this lot:
 
 Depth values reference `src/scenes/depth.ts`. Two assets sharing a depth value
 are ordered by their listed draw order (earlier = behind).
+
+---
+
+## Production source dimensions
+
+Recommended dimensions for the **production master files** (the `source/` →
+`exports/` pipeline), before any runtime optimization. They are mirrored by
+the documentary `productionSize` field of each manifest entry
+(`src/assets/battleEnvironmentAssets.ts`) and unit-tested for internal
+consistency.
+
+| Asset | Production dimensions | Ratio |
+|---|---:|---:|
+| `battle_bg_arch_upper.webp` | 1536 × 1024 | 1.500 |
+| `battle_floor_stone.webp` | 1536 × 512 | 3.000 |
+| `battle_left_hearth_cluster.png` | 640 × 1200 | 0.533 |
+| `battle_right_larder_cluster.png` | 640 × 1200 | 0.533 |
+| `battle_prep_table_base.webp` | 1536 × 1280 | 1.200 |
+| `battle_prep_cutting_board.png` | 1434 × 1000 | 1.434 |
+
+Rules:
+
+- These are **recommendations for the source files, never runtime
+  coordinates** — runtime placement comes exclusively from
+  `computeBattleEnvironmentLayout` and the runtime scale stays uniform.
+- The cutting board's aspect ratio must be preserved with high precision
+  (its uniform fit into the slot depends on it — see Asset 6).
+- Opaque assets may be optimized as WebP; assets requiring transparency stay
+  32-bit PNG.
+- No final file may ever be stretched anisotropically, at export time or at
+  runtime.
 
 ---
 
@@ -68,6 +99,18 @@ floor can overlap it without ever exposing a gap.
 **Must include.** Vault/ceiling, central wall, the boss alcove (a calm,
 low-contrast zone directly behind the boss silhouette), general upper-half
 structure, baked ambient lighting consistent with the master.
+
+**May include (validated art decision).** The master's high peripheral
+hanging accessories belong to THIS asset, not to the side clusters: high
+hanging herb bouquets, garlic strings near the ceiling, small high-shelf
+trinkets sitting above the edge-cluster slots, and secondary hanging pieces
+integrated into the vault and lateral walls. May include high peripheral
+hanging herbs, garlic and small shelf details located above the edge-cluster
+slots, provided they remain secondary and do not enter the central HUD or
+boss-safe area. Constraints: they stay peripheral (baked into the walls'
+outer thirds), they never enter the central HUD zone, they never enter the
+boss's calm alcove, and they never read as interactive or visually dominant
+elements.
 
 **Must exclude.** Any table, any cutting board, any puzzle element, the
 hearth/cooking cluster (Asset 3), the larder shelves (Asset 4), characters,
@@ -170,11 +213,16 @@ screen. The inner (center-facing) edge must stay calm — low contrast, no
 bright fire licking toward the board/heroes.
 
 **Must include.** Stone oven mass, fire glow (baked), marmite, a few hanging
-utensils; grounded contact shadow baked into the alpha.
+utensils; grounded contact shadow baked into the alpha. The cluster's
+priority is the **low and mid functional mass**: oven, hearth, cauldron and
+the tools within arm's reach of the fire.
 
 **Must exclude.** Any full ceiling or full floor (it is a prop cluster, not a
 room slice), any opaque backdrop, characters, anything crossing the vertical
-center of the screen.
+center of the screen. Ceiling-level accessories are NOT this cluster's
+responsibility: high hanging herbs/garlic and small high-shelf details above
+the cluster slot belong to Asset 1 (validated art decision) — do not paint
+them here to "reach up" past the slot.
 
 **Layout relationship.** Drawn at `DEPTH.ENVIRONMENT`, i.e. **behind** the
 boss (21), heroes (31), table (40), board (50) and HUD (80). It may visually
@@ -214,10 +262,13 @@ gameplay column; up to ~40% may crop off-screen on phones; the center-facing
 edge stays calm.
 
 **Must include.** Shelving with jars/pots, sacks, vegetables/herbs, baked
-contact shadows.
+contact shadows. The cluster's priority is the **low and mid functional
+mass**: low shelves, pots, sacks and reserves.
 
 **Must exclude.** Any hearth/fire (that is Asset 3's identity), any opaque
-backdrop, full ceiling/floor, characters.
+backdrop, full ceiling/floor, characters. Ceiling-level accessories are NOT
+this cluster's responsibility: hanging herbs/garlic near the vault and
+trinkets above the cluster slot belong to Asset 1 (validated art decision).
 
 **Layout relationship.** Same as Asset 3 — `DEPTH.ENVIRONMENT`, behind all
 gameplay layers.
@@ -273,6 +324,19 @@ board can sit on at any column width).
 `tableTopGap` above this asset). The cutting board (Asset 6) sits on top of
 it at `DEPTH.TABLE`, drawn after.
 
+**Logical slot boundary vs optional future render overlap.** The logical
+preparation slot begins exactly at `layout.table.y`. During the future
+integration pass, the rendered sprite may overlap the stone floor by 1–2
+logical pixels only if required to hide a sampling seam. This does not alter
+the slot or layout model. In detail: the *logical slot boundary* (what the
+slot model, the review overlay and every test bind to) is and stays
+`layout.table`; the *optional render overlap* is a pure integration-time
+sprite adjustment against seams caused by texture filtering, subpixel
+rounding, antialiasing or sampling differences. It must NOT be applied
+preemptively, is NOT coded in the current helper or normal rendering, and
+never changes `layout.table`, the stone floor slot, or this contract's
+target rect.
+
 **Technical validation.** Opaque WebP; `prepTableBase` slot === `layout.table`
 at the three formats (unit-tested equality); central zone calm enough for the
 board; hard top seam aligned with the slot's top edge.
@@ -302,8 +366,23 @@ of `tileBounds`, see `DEFAULT_ENVIRONMENT_SLOT_POLICY`):
 ```
 width  = tileBounds.width  + 2 × sideMarginFraction   × tileBounds.width
 height = tileBounds.height + (topMarginFraction + bottomMarginFraction) × tileBounds.height
-center = (gameplayColumn.centerX, tileBounds.y − topMargin + height / 2)
+top    = max(tileBounds.y − topMargin, table.y + minimumBoardTopGap)
+center = (gameplayColumn.centerX, top + height / 2)
 ```
+
+**Minimum top gap (clamp).** `minimumBoardTopGap` (8 logical px, in
+`DEFAULT_ENVIRONMENT_SLOT_POLICY`) guarantees the board's top edge never
+crowds the stone/wood separation: after the natural derivation above, the
+slot is shifted **down, on Y only**, until its top edge sits at least 8 px
+below `table.y`. The clamp never moves the puzzle, never touches
+`tileBounds` or any cell position, and never alters the slot's width,
+height, ratio, side margins or X — only the visual slot's Y may change.
+If an extremely constrained viewport ever made this shift push the slot's
+bottom lip toward the viewport edge, the preservation priority is:
+(1) puzzle content, (2) the minimum top gap, (3) bottom-contour visibility —
+gameplay is never shrunk to compensate. At the three reference formats the
+clamp is active at 360×640 and 480×720 (where the natural frame pokes
+slightly above the seam) and inactive at 768×1024.
 
 **Responsive behavior.** Uniform scaling ONLY, driven by the board's own
 scale (the margins are fractions of `tileBounds`, so the frame follows the
@@ -324,7 +403,8 @@ central zone, any text — the center is a uniform, calm surface (tiles render
 over it at `DEPTH.BOARD`).
 
 **Layout relationship.** Placement derives from `layout.board.tileBounds` +
-margin policy (and nothing else); the export's aspect ratio must match the
+margin policy, then the `minimumBoardTopGap` clamp against `layout.table.y`
+(and nothing else); the export's aspect ratio must match the
 slot's ratio (proof at 480×720 against the review capture) so the uniform fit
 is exact at every format.
 
