@@ -21,6 +21,9 @@ validated against the slot guides described below.
   crop behavior, inclusion/exclusion lists, validation criteria).
 - Spec: `docs/superpowers/specs/2026-07-14-lot-01-environment-production-setup-design.md`
 - Plan: `docs/superpowers/plans/2026-07-14-lot-01-environment-production-setup.md`
+- Finalization spec/plan (five contract adjustments, 2026-07-15):
+  `docs/superpowers/specs/2026-07-15-lot-01-contract-finalization-design.md`,
+  `docs/superpowers/plans/2026-07-15-lot-01-contract-finalization.md`
 
 ## Folders
 
@@ -30,6 +33,10 @@ validated against the slot guides described below.
   game.
 - `review/` — captured review images. `review/slots/` holds the slot-guide
   captures at the three reference formats (360×640, 480×720, 768×1024).
+  The `environment-slots-{WxH}-final.png` set is the **final production
+  checkpoint** (includes the `minimumBoardTopGap` clamp on the cutting-board
+  slot); the suffix-less set is the earlier pre-finalization capture, kept
+  for history.
 - Final validated files ship to `public/assets/battle/environment/…` at the
   exact paths listed in the contract (mirrored by the TypeScript manifest
   `src/assets/battleEnvironmentAssets.ts`).
