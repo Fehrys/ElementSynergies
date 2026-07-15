@@ -8,6 +8,8 @@ import {
   ENVIRONMENT_ROLES,
 } from '../../src/scenes/battleEnvironmentLayout';
 import { BATTLE_ENVIRONMENT_ASSETS, environmentAssetByRole } from '../../src/assets/battleEnvironmentAssets';
+import { cellToPixel } from '../../src/scenes/boardGeometry';
+import { getAllCells } from '../../src/core/grid';
 
 const noInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -102,6 +104,47 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
     expect(env.upperArchitecture.originX).toBe(0.5);
   });
 
+  it('keeps the cutting board top at least minimumBoardTopGap below the seam', () => {
+    const rect = placementToRect(env.cuttingBoard);
+    expect(rect.y).toBeGreaterThanOrEqual(layout.table.y + DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap);
+    // The shifted frame still fully encloses the tiles and stays inside the
+    // preparation band (no bottom overflow at the reference formats).
+    const tiles = layout.board.tileBounds;
+    expect(rect.y).toBeLessThan(tiles.y);
+    expect(rect.y + rect.height).toBeGreaterThan(tiles.y + tiles.height);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(layout.table.y + layout.table.height);
+  });
+
+  it('lets the clamp change only the cutting board Y, nothing else', () => {
+    const unclamped = computeBattleEnvironmentLayout(layoutAt(width, height), {
+      ...DEFAULT_ENVIRONMENT_SLOT_POLICY,
+      minimumBoardTopGap: -Infinity,
+    });
+    // The five other slots are byte-identical with or without the clamp.
+    for (const role of ENVIRONMENT_ROLES) {
+      if (role === 'cuttingBoard') continue;
+      expect(env[role]).toEqual(unclamped[role]);
+    }
+    // On the board itself, every field except y is untouched.
+    expect(env.cuttingBoard.x).toBe(unclamped.cuttingBoard.x);
+    expect(env.cuttingBoard.width).toBe(unclamped.cuttingBoard.width);
+    expect(env.cuttingBoard.height).toBe(unclamped.cuttingBoard.height);
+    expect(env.cuttingBoard.originX).toBe(unclamped.cuttingBoard.originX);
+    expect(env.cuttingBoard.originY).toBe(unclamped.cuttingBoard.originY);
+    expect(env.cuttingBoard.y).toBeGreaterThanOrEqual(unclamped.cuttingBoard.y);
+  });
+
+  it('leaves the 32 cell positions and tileBounds untouched by the clamp', () => {
+    const fresh = layoutAt(width, height);
+    const cellsBefore = getAllCells().map((c) => cellToPixel(fresh.board, c.row, c.col));
+    const tileBoundsBefore = { ...fresh.board.tileBounds };
+    computeBattleEnvironmentLayout(fresh);
+    const cellsAfter = getAllCells().map((c) => cellToPixel(fresh.board, c.row, c.col));
+    expect(cellsAfter).toHaveLength(32);
+    expect(cellsAfter).toEqual(cellsBefore);
+    expect(fresh.board.tileBounds).toEqual(tileBoundsBefore);
+  });
+
   it('never mutates the BattleLayout it reads (gameplay is untouched)', () => {
     const fresh = layoutAt(width, height);
     const snapshot = JSON.parse(JSON.stringify(fresh));
@@ -142,6 +185,22 @@ describe('tablet-specific constraints (768 x 1024)', () => {
     expect(env.leftHearth.width).toBeCloseTo(expected, 9);
     expect(env.rightLarder.width).toBeCloseTo(expected, 9);
   });
+
+  it('does not move the cutting board when the natural gap is already sufficient', () => {
+    // On tablet the natural top sits well below table.y + gap, so the clamp
+    // must not alter the validated placement at all.
+    const tiles = layout.board.tileBounds;
+    const naturalTop = tiles.y - tiles.height * DEFAULT_ENVIRONMENT_SLOT_POLICY.cuttingBoardTopMarginFraction;
+    expect(naturalTop).toBeGreaterThan(layout.table.y + DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap);
+    expect(placementToRect(env.cuttingBoard).y).toBeCloseTo(naturalTop, 9);
+  });
+});
+
+describe('slot policy contract values', () => {
+  it('pins the validated cluster cap and board top gap', () => {
+    expect(DEFAULT_ENVIRONMENT_SLOT_POLICY.clusterMaxWidth).toBe(220);
+    expect(DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap).toBe(8);
+  });
 });
 
 describe('manifest consistency', () => {
@@ -164,5 +223,26 @@ describe('manifest consistency', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
       expect(a.alphaRequired).toBe(a.format === 'png');
     }
+  });
+
+  it('declares strictly positive production dimensions for all six assets', () => {
+    for (const a of BATTLE_ENVIRONMENT_ASSETS) {
+      expect(a.productionSize).toBeDefined();
+      expect(a.productionSize.width).toBeGreaterThan(0);
+      expect(a.productionSize.height).toBeGreaterThan(0);
+      expect(a.productionSize.aspectRatio).toBeGreaterThan(0);
+      expect(Number.isInteger(a.productionSize.width)).toBe(true);
+      expect(Number.isInteger(a.productionSize.height)).toBe(true);
+    }
+  });
+
+  it('keeps every declared aspect ratio consistent with its dimensions', () => {
+    for (const a of BATTLE_ENVIRONMENT_ASSETS) {
+      const { width, height, aspectRatio } = a.productionSize;
+      expect(Math.abs(aspectRatio - width / height)).toBeLessThan(0.005);
+    }
+    // The cutting board's ratio drives its uniform slot fit: high precision.
+    const board = environmentAssetByRole('cuttingBoard').productionSize;
+    expect(board.aspectRatio).toBeCloseTo(board.width / board.height, 9);
   });
 });

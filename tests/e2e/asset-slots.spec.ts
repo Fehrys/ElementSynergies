@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from '../../src/scenes/battleLayout';
-import { computeBattleEnvironmentLayout } from '../../src/scenes/battleEnvironmentLayout';
+import { computeBattleEnvironmentLayout, DEFAULT_ENVIRONMENT_SLOT_POLICY } from '../../src/scenes/battleEnvironmentLayout';
 
 // Covers the lot-01 &assetSlots=1 extension of the combatBackground art review
 // mode (see docs/superpowers/specs/2026-07-14-lot-01-environment-production-setup-design.md).
@@ -34,6 +34,10 @@ test('assetSlots=1 inside the review mode activates the six slot guides', async 
   // zero safe-area insets in the test browser, JSON round-trip is lossless).
   const serialized = await page.evaluate(() => JSON.parse(document.body.getAttribute('data-asset-slots-layout')!));
   expect(serialized).toEqual(expectedEnvLayout(480, 720));
+
+  // The overlay also exposes the exact policy the slots were computed with.
+  const policy = await page.evaluate(() => JSON.parse(document.body.getAttribute('data-asset-slots-policy')!));
+  expect(policy).toEqual(DEFAULT_ENVIRONMENT_SLOT_POLICY);
 });
 
 test('normal mode carries no asset-slot attributes or objects', async ({ page }) => {
@@ -44,8 +48,9 @@ test('normal mode carries no asset-slot attributes or objects', async ({ page })
     slots: document.body.getAttribute('data-asset-slots'),
     ready: document.body.getAttribute('data-asset-slots-ready'),
     layout: document.body.getAttribute('data-asset-slots-layout'),
+    policy: document.body.getAttribute('data-asset-slots-policy'),
   }));
-  expect(attrs).toEqual({ slots: null, ready: null, layout: null });
+  expect(attrs).toEqual({ slots: null, ready: null, layout: null, policy: null });
   expect(await page.evaluate(() => window.__debug!.getLayerObjectCounts().assetSlots)).toBe(0);
 });
 
@@ -57,8 +62,9 @@ test('artReview=combatBackground without assetSlots draws no slot guides', async
     slots: document.body.getAttribute('data-asset-slots'),
     ready: document.body.getAttribute('data-asset-slots-ready'),
     layout: document.body.getAttribute('data-asset-slots-layout'),
+    policy: document.body.getAttribute('data-asset-slots-policy'),
   }));
-  expect(attrs).toEqual({ slots: null, ready: null, layout: null });
+  expect(attrs).toEqual({ slots: null, ready: null, layout: null, policy: null });
   expect(await page.evaluate(() => window.__debug!.getLayerObjectCounts().assetSlots)).toBe(0);
 });
 
