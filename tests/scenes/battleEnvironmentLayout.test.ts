@@ -28,11 +28,19 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
   const layout = layoutAt(width, height);
   const env = computeBattleEnvironmentLayout(layout);
 
-  it('computes all six placements', () => {
+  it('computes all five placements', () => {
     for (const role of ENVIRONMENT_ROLES) {
       expect(env[role]).toBeDefined();
     }
     expect(Object.keys(env).sort()).toEqual([...ENVIRONMENT_ROLES].sort());
+  });
+
+  it('no longer defines the retired upperArchitecture/stoneFloor roles', () => {
+    expect(ENVIRONMENT_ROLES as readonly string[]).not.toContain('upperArchitecture');
+    expect(ENVIRONMENT_ROLES as readonly string[]).not.toContain('stoneFloor');
+    expect(Object.keys(env)).not.toContain('upperArchitecture');
+    expect(Object.keys(env)).not.toContain('stoneFloor');
+    expect(ENVIRONMENT_ROLES).toContain('battleBackgroundUpper');
   });
 
   it('contains no NaN or Infinity anywhere', () => {
@@ -91,17 +99,14 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
     expect(right.y + right.height).toBeCloseTo(layout.table.y, 9);
   });
 
-  it('ends the stone floor exactly where the preparation zone begins', () => {
-    const floor = placementToRect(env.stoneFloor);
-    expect(floor.y).toBeCloseTo(layout.environment.horizonY, 9);
-    expect(floor.y + floor.height).toBeCloseTo(layout.table.y, 9);
-    expect(floor.width).toBe(width);
-  });
-
-  it('covers the upper band with the architecture slot, viewport-centered', () => {
-    const arch = placementToRect(env.upperArchitecture);
-    expect(arch).toEqual({ x: 0, y: 0, width, height: layout.environment.horizonY });
-    expect(env.upperArchitecture.originX).toBe(0.5);
+  it('covers the entire upper band with battleBackgroundUpper, viewport-centered, down to layout.table.y', () => {
+    const bg = placementToRect(env.battleBackgroundUpper);
+    expect(bg).toEqual({ x: 0, y: 0, width, height: layout.table.y });
+    expect(env.battleBackgroundUpper.originX).toBe(0.5);
+    expect(env.battleBackgroundUpper.originY).toBe(0);
+    expect(env.battleBackgroundUpper.x).toBe(width / 2);
+    expect(env.battleBackgroundUpper.width).toBe(layout.background.width);
+    expect(env.battleBackgroundUpper.height).toBe(layout.table.y);
   });
 
   it('keeps the cutting board top at least minimumBoardTopGap below the seam', () => {
@@ -204,12 +209,19 @@ describe('slot policy contract values', () => {
 });
 
 describe('manifest consistency', () => {
-  it('defines exactly six assets with unique keys, paths, and roles', () => {
-    expect(BATTLE_ENVIRONMENT_ASSETS).toHaveLength(6);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.key)).size).toBe(6);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.path)).size).toBe(6);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)).size).toBe(6);
+  it('defines exactly five assets with unique keys, paths, and roles', () => {
+    expect(BATTLE_ENVIRONMENT_ASSETS).toHaveLength(5);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.key)).size).toBe(5);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.path)).size).toBe(5);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)).size).toBe(5);
     expect([...BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)].sort()).toEqual([...ENVIRONMENT_ROLES].sort());
+  });
+
+  it('no longer declares the retired upperArchitecture/stoneFloor roles', () => {
+    const roles = BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role);
+    expect(roles).not.toContain('upperArchitecture');
+    expect(roles).not.toContain('stoneFloor');
+    expect(roles).toContain('battleBackgroundUpper');
   });
 
   it('roots every path under the environment production tree with the matching extension', () => {
@@ -219,13 +231,40 @@ describe('manifest consistency', () => {
     }
   });
 
+  it('uses the exact contract paths for each role', () => {
+    expect(environmentAssetByRole('battleBackgroundUpper').path).toBe(
+      '/assets/battle/environment/background/battle_bg_upper.webp',
+    );
+    expect(environmentAssetByRole('prepTableBase').path).toBe(
+      '/assets/battle/environment/preparation/battle_prep_table_base.webp',
+    );
+    expect(environmentAssetByRole('cuttingBoard').path).toBe(
+      '/assets/battle/environment/preparation/battle_prep_cutting_board.png',
+    );
+    expect(environmentAssetByRole('leftHearth').path).toBe(
+      '/assets/battle/environment/props/left/battle_left_hearth_cluster.png',
+    );
+    expect(environmentAssetByRole('rightLarder').path).toBe(
+      '/assets/battle/environment/props/right/battle_right_larder_cluster.png',
+    );
+  });
+
   it('requires alpha exactly for the png clusters/board and never for opaque webp layers', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
       expect(a.alphaRequired).toBe(a.format === 'png');
     }
   });
 
-  it('declares strictly positive production dimensions for all six assets', () => {
+  it('marks exactly the three produced assets as available and the two clusters as pending', () => {
+    const byStatus = (status: 'available' | 'pending') =>
+      BATTLE_ENVIRONMENT_ASSETS.filter((a) => a.status === status)
+        .map((a) => a.role)
+        .sort();
+    expect(byStatus('available')).toEqual(['battleBackgroundUpper', 'cuttingBoard', 'prepTableBase'].sort());
+    expect(byStatus('pending')).toEqual(['leftHearth', 'rightLarder'].sort());
+  });
+
+  it('declares strictly positive production dimensions for all five assets', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
       expect(a.productionSize).toBeDefined();
       expect(a.productionSize.width).toBeGreaterThan(0);
