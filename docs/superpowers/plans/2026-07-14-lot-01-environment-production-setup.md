@@ -1,3 +1,10 @@
+> **Superseded (2026-07-16).** This plan implemented a **six-asset** contract
+> (`upperArchitecture` + `stoneFloor` as two separate layers). The contract
+> was subsequently migrated to **five assets**, merging those two into a
+> single `battleBackgroundUpper` layer. The current, binding contract is
+> `design/production/combat/lot-01-environment/ASSET_CONTRACT.md`; this file
+> is kept for historical context only.
+
 # Lot 1 Environment Asset Production Setup — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

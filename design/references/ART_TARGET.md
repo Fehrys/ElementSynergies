@@ -6,7 +6,7 @@ This document defines the visual target for the combat presentation of Broth & B
 
 Reference image:
 
-`design/references/combat-art-target.png`
+`design/references/combat-background-target.png`
 
 The reference is not a final production screen and should not be copied pixel for pixel.
 
