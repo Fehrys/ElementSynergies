@@ -35,8 +35,7 @@ const ART_REVIEW_BACKGROUND_KEY = 'combat-background-target';
 // color per environment role (presentation only; geometry comes exclusively
 // from battleEnvironmentLayout).
 const ASSET_SLOT_COLORS: Record<BattleEnvironmentRole, number> = {
-  upperArchitecture: 0x4d79ff,
-  stoneFloor: 0x00c2a8,
+  battleBackgroundUpper: 0x4d79ff,
   leftHearth: 0xff8c3a,
   rightLarder: 0x6fce44,
   prepTableBase: 0xd8a03c,
@@ -46,8 +45,7 @@ const ASSET_SLOT_COLORS: Record<BattleEnvironmentRole, number> = {
 // Where each slot's small technical label sits inside its rect, so labels of
 // adjacent/nested slots never stack on the same corner.
 const ASSET_SLOT_LABEL_ANCHORS: Record<BattleEnvironmentRole, { x: number; y: number }> = {
-  upperArchitecture: { x: 0, y: 0 },
-  stoneFloor: { x: 0, y: 0 },
+  battleBackgroundUpper: { x: 0, y: 0 },
   leftHearth: { x: 0, y: 0 },
   rightLarder: { x: 1, y: 0 },
   prepTableBase: { x: 0, y: 1 },
@@ -308,7 +306,7 @@ export class BattleScene extends Phaser.Scene {
       document.body.setAttribute('data-art-review-ready', 'true');
       // Lot-01 slot overlay surface: `ready` is only set here, AFTER the first
       // applyLayout() above already ran drawAssetSlots() over a fully computed
-      // layout — so waiting on it guarantees the six slots exist and
+      // layout — so waiting on it guarantees the five slots exist and
       // data-asset-slots-layout holds the first complete computation.
       if (this.assetSlotsEnabled) {
         document.body.setAttribute('data-asset-slots', 'true');
@@ -666,7 +664,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // Lot-01 production overlay (&assetSlots=1, only inside the combatBackground
-  // review mode). Draws the six FUTURE environment assets' placements as
+  // review mode). Draws the five FUTURE environment assets' placements as
   // semi-transparent role-colored rects + one small technical label each
   // (diagnostic only — no UI panel). Geometry comes exclusively from
   // computeBattleEnvironmentLayout(activeLayout) — no hand-copied coordinate —

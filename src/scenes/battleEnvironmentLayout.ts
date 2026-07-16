@@ -1,7 +1,7 @@
-// Pure, Phaser-free and DOM-free placement model for the six Lot 1 combat
+// Pure, Phaser-free and DOM-free placement model for the five Lot 1 combat
 // environment assets (see design/production/combat/lot-01-environment/
 // ASSET_CONTRACT.md). It CONSUMES an already-computed BattleLayout and derives
-// six placements from its semantic frontiers — it never feeds anything back
+// five placements from its semantic frontiers — it never feeds anything back
 // into battleLayout/boardGeometry/compositionLayout (gameplay math is strictly
 // upstream of this module), and no coordinate here is copied from the
 // reference image. Consumed today only by the &assetSlots=1 diagnostic overlay
@@ -22,8 +22,7 @@ export interface AssetPlacement {
 }
 
 export const ENVIRONMENT_ROLES = [
-  'upperArchitecture',
-  'stoneFloor',
+  'battleBackgroundUpper',
   'leftHearth',
   'rightLarder',
   'prepTableBase',
@@ -72,20 +71,23 @@ export function placementToRect(p: AssetPlacement): Rect {
   };
 }
 
-// Derives the six slots from the layout's SEMANTIC frontiers only:
+// Derives the five slots from the layout's SEMANTIC frontiers only:
 // - viewport            = layout.background
-// - wall/floor seam     = layout.environment.horizonY (bands.hero.top)
 // - stone/wood seam     = layout.table.y (bands.hero.bottom + tableTopGap)
 // - preparation band    = layout.table (full-bleed, validated)
 // - cluster upper bound = layout.bands.monster.top
 // - puzzle support      = layout.board.tileBounds (+ policy margins)
 // Read-only over `layout`; deterministic (no RNG, no DOM, no time).
+//
+// `horizonY` (the old wall/floor seam) stays a layout-internal reference
+// point — it no longer produces its own slot: the upper background asset now
+// spans the full y ∈ [0, table.y] band in one cover-fit painting that already
+// contains the vault, walls, arches and the stone combat floor.
 export function computeBattleEnvironmentLayout(
   layout: BattleLayout,
   policy: EnvironmentSlotPolicy = DEFAULT_ENVIRONMENT_SLOT_POLICY,
 ): BattleEnvironmentLayout {
   const viewport = layout.background;
-  const horizonY = layout.environment.horizonY;
   const prepTopY = layout.table.y; // stone/wood separation
   const clusterTopY = layout.bands.monster.top;
   const clusterWidth = Math.min(viewport.width * policy.clusterWidthFraction, policy.clusterMaxWidth);
@@ -105,25 +107,17 @@ export function computeBattleEnvironmentLayout(
   const boardTop = Math.max(tiles.y - topMargin, prepTopY + policy.minimumBoardTopGap);
 
   return {
-    // Vault / wall / boss alcove: viewport-wide band from the top edge down to
-    // the wall/floor seam; the future asset cover-fits this band (may crop
-    // laterally on phones, extends on tablets — never stretched).
-    upperArchitecture: {
+    // Vault / walls / boss alcove / stone combat floor: one viewport-wide band
+    // from the top edge down to the stone/wood seam; the future asset
+    // cover-fits this whole band (may crop laterally on phones, extends on
+    // tablets — never stretched). This single slot replaces the former
+    // upperArchitecture + stoneFloor pair — the wall/floor seam (`horizonY`)
+    // is no longer an asset-slot boundary, only an internal layout reference.
+    battleBackgroundUpper: {
       x: viewport.width / 2,
       y: 0,
       width: viewport.width,
-      height: horizonY,
-      originX: 0.5,
-      originY: 0,
-    },
-    // Stone ground plane between the two seams. Deliberately derived from the
-    // band frontiers, never from the hero rects — the validated hero↔table
-    // clearance lives inside this band.
-    stoneFloor: {
-      x: viewport.width / 2,
-      y: horizonY,
-      width: viewport.width,
-      height: prepTopY - horizonY,
+      height: prepTopY,
       originX: 0.5,
       originY: 0,
     },
