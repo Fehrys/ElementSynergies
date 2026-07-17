@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BATTLE_ENVIRONMENT_ASSETS } from '../../src/assets/battleEnvironmentAssets';
 import { readPngHeader } from './pngHeader';
+import { readWebpHeader } from './webpHeader';
 
 // Validates the produced Lot 1 environment assets against the manifest:
 // existence at the declared path, decodability, real production dimensions
@@ -13,6 +14,19 @@ import { readPngHeader } from './pngHeader';
 const PUBLIC_ROOT = path.resolve(__dirname, '../../public');
 
 const AVAILABLE_ASSETS = BATTLE_ENVIRONMENT_ASSETS.filter((a) => a.status === 'available');
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const RIFF_SIGNATURE = Buffer.from('RIFF', 'ascii');
+
+// Detected from the file's own magic bytes, independent of the manifest's
+// declared `format` — this is what previously caught the container/extension
+// mismatch on the two `.webp`-declared assets (see ASSET_CONTRACT.md "Known
+// issues"), so it stays a real assertion rather than a trusted assumption.
+function detectContainer(buf: Buffer): 'png' | 'webp' {
+  if (buf.subarray(0, 8).equals(PNG_SIGNATURE)) return 'png';
+  if (buf.subarray(0, 4).equals(RIFF_SIGNATURE)) return 'webp';
+  throw new Error('File is neither a decodable PNG nor a decodable WebP (unrecognized magic bytes).');
+}
 
 describe('environment asset files (available assets only)', () => {
   it('has exactly the three produced assets marked available', () => {
@@ -29,14 +43,15 @@ describe('environment asset files (available assets only)', () => {
         expect(fs.existsSync(filePath)).toBe(true);
       });
 
-      it('is a decodable PNG with the declared production dimensions', () => {
-        // Every currently-produced file is PNG-encoded on disk, including the
-        // two declared `format: 'webp'` (see the manifest's per-asset
-        // comments for the container/extension mismatch this uncovered).
+      it('is encoded in its declared format with the declared production dimensions', () => {
         const buf = fs.readFileSync(filePath);
-        const header = readPngHeader(buf);
-        expect(header.width).toBe(asset.productionSize.width);
-        expect(header.height).toBe(asset.productionSize.height);
+        const container = detectContainer(buf);
+        expect(container, `${asset.path} must be a real ${asset.format} file, but decoded as ${container}.`).toBe(
+          asset.format,
+        );
+        const { width, height } = container === 'png' ? readPngHeader(buf) : readWebpHeader(buf);
+        expect(width).toBe(asset.productionSize.width);
+        expect(height).toBe(asset.productionSize.height);
       });
 
       if (asset.alphaRequired) {

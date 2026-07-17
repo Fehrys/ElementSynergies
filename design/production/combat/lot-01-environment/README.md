@@ -26,11 +26,16 @@ two prop clusters (`battle_left_hearth_cluster.png`,
 `battle_right_larder_cluster.png`) are still awaiting production — only
 `.gitkeep` placeholders exist at their folders. See
 `tests/assets/environmentAssetFiles.test.ts` for the automated check that
-distinguishes available from pending assets, and `ASSET_CONTRACT.md`'s
-"Known issues" section for two unresolved problems on the produced files
-(a container/extension mismatch and a missing alpha channel on the cutting
-board). Loading these assets into Phaser (`this.load.image()`) is still out
-of scope for Lot 1 — a later integration lot wires that up.
+distinguishes available from pending assets and validates each produced
+file's real container, dimensions, and (where required) alpha channel
+against the manifest. The previously documented container/extension mismatch
+(background and table base decoding as PNG despite their `.webp` name) has
+been resolved — both are now real WebP files. The cutting board was
+re-exported (now 1064×1044, real alpha channel) and no longer has an alpha
+issue; its aspect ratio still needs a follow-up check against the
+`gameplayColumnObject` slot fit. Loading these assets into
+Phaser (`this.load.image()`) is still out of scope for Lot 1 — a later
+integration lot wires that up.
 
 ## Documents
 

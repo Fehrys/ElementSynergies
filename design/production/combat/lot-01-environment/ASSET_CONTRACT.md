@@ -65,7 +65,7 @@ these exact dimensions (`tests/assets/environmentAssetFiles.test.ts`).
 |---|---|---:|---:|
 | `battle_bg_upper.webp` | **available** | 1536 × 1024 | 1.500 |
 | `battle_prep_table_base.webp` | **available** | 1374 × 1145 | 1.200 |
-| `battle_prep_cutting_board.png` | **available** | 1086 × 1448 | 0.750 |
+| `battle_prep_cutting_board.png` | **available** | 1064 × 1044 | 1.019 |
 | `battle_left_hearth_cluster.png` | pending | 640 × 1200 (target) | 0.533 |
 | `battle_right_larder_cluster.png` | pending | 640 × 1200 (target) | 0.533 |
 
@@ -73,22 +73,22 @@ these exact dimensions (`tests/assets/environmentAssetFiles.test.ts`).
 `tests/assets/environmentAssetFiles.test.ts` and the migration report for
 detail):
 
-- **`battle_bg_upper.webp` and `battle_prep_table_base.webp` are PNG-encoded
-  on disk, not WebP**, despite their `.webp` extension and declared manifest
-  `format: 'webp'`. Both decode as valid PNG (verified via the PNG file
-  signature and IHDR chunk). This is a container/extension mismatch in the
-  export pipeline, not a runtime blocker today (Lot 1 does not load these
-  files yet), but it should be corrected — either by actually re-exporting as
-  WebP, or by renaming the manifest path/format to `.png` — before the future
-  integration lot wires loading.
-- **`battle_prep_cutting_board.png` has no real alpha channel.** It decodes as
-  PNG color type 2 (truecolor RGB, no alpha, no `tRNS` chunk either) — a flat
-  opaque rectangle, not a transparent cutout. This fails the alpha
-  requirement below (Asset 3) and must be re-exported as PNG RGBA. Its
-  measured aspect ratio (1086×1448, portrait, ratio 0.75) also does not match
-  the landscape ratio the contract originally targeted — this must be
-  re-evaluated against the `gameplayColumnObject` slot fit (see Asset 3 below)
-  once a corrected export exists.
+- **`battle_bg_upper.webp` and `battle_prep_table_base.webp` are real WebP
+  files** (RIFF/WEBP container, VP8L lossless chunk), matching their `.webp`
+  extension and declared manifest `format: 'webp'`. The container/extension
+  mismatch previously documented here (both decoding as PNG despite the
+  `.webp` name) has been resolved — the files were re-exported as genuine
+  WebP since that finding. `tests/assets/environmentAssetFiles.test.ts` now
+  asserts the on-disk container matches the manifest's declared `format` for
+  every available asset, so a regression here would fail the suite again.
+- **`battle_prep_cutting_board.png` was re-exported and resized (2026-07-17).**
+  It now decodes as PNG color type 6 (truecolor + real alpha channel) at
+  1064×1044 (ratio 1.019) — the prior opaque-RGB, no-alpha, 1086×1448 export
+  has been replaced. The alpha requirement below (Asset 3) is now satisfied.
+  Its new near-square aspect ratio still needs to be checked against the
+  `gameplayColumnObject` slot's actual computed ratio at 480×720 (see Asset 3
+  below) — that visual fit review is a separate follow-up, not covered by
+  this dimension sync.
 
 Rules:
 
@@ -114,7 +114,7 @@ Rules:
 | File | `public/assets/battle/environment/background/battle_bg_upper.webp` |
 | Status | **Available** |
 | Phaser key | `battle-env-bg-upper` |
-| File type | WebP (lossy, high quality) declared; **currently ships as PNG** — see "Known issues" above |
+| File type | WebP (lossless, VP8L) |
 | Transparency | **Opaque** — no alpha |
 | Anchor | `(0.5, 0)` — top-center |
 | Depth | `DEPTH.BACKGROUND` (0), drawn first |
@@ -182,7 +182,7 @@ readable over it; ends exactly where `prepTableBase` begins.
 | File | `public/assets/battle/environment/preparation/battle_prep_table_base.webp` |
 | Status | **Available** |
 | Phaser key | `battle-env-prep-table-base` |
-| File type | WebP (lossy, high quality) declared; **currently ships as PNG** — see "Known issues" above |
+| File type | WebP (lossless, VP8L) |
 | Transparency | **Opaque** — no alpha |
 | Anchor | `(0, 0)` — top-left |
 | Depth | `DEPTH.TABLE` (40), drawn first in the table layer |
@@ -243,10 +243,10 @@ board; hard top seam aligned with the slot's top edge.
 | Field | Value |
 |---|---|
 | File | `public/assets/battle/environment/preparation/battle_prep_cutting_board.png` |
-| Status | **Available, but fails alpha validation — see "Known issues" above** |
+| Status | **Available** — real alpha, resized to 1064×1044 (see "Known issues" above) |
 | Phaser key | `battle-env-cutting-board` |
 | File type | PNG (32-bit required) |
-| Transparency | **True alpha required** (organic contour, juice groove, worn corners) — **currently opaque RGB, no alpha channel** |
+| Transparency | **True alpha required** (organic contour, juice groove, worn corners) — present (PNG color type 6) |
 | Anchor | `(0.5, 0.5)` — center |
 | Depth | `DEPTH.TABLE` (40), drawn after Asset 2 (over it), below `DEPTH.BOARD` (50) |
 | Responsive policy | `gameplayColumnObject` |
@@ -302,18 +302,17 @@ over it at `DEPTH.BOARD`).
 margin policy, then the `minimumBoardTopGap` clamp against `layout.table.y`
 (and nothing else); the export's aspect ratio must match the slot's ratio
 (proof at 480×720 against the review capture) so the uniform fit is exact at
-every format. **The currently produced file (1086×1448, portrait, ratio
-0.75) has not been checked against the slot's actual computed ratio at
-480×720 — do this once a real-alpha re-export exists.**
+every format. **The current produced file (1064×1044, ratio 1.019) has not
+yet been checked against the slot's actual computed ratio at 480×720 — do
+this as a follow-up visual fit review; it is unaffected by this dimension
+sync.**
 
 **Technical validation.** Real alpha with organic contour (no straight
-full-bleed rectangle) — **currently fails: the produced file is opaque
-RGB with no alpha channel, detected by
-`tests/assets/environmentAssetFiles.test.ts`, which must stay red until a
-corrected PNG RGBA export replaces this file at the same path**;
-`cuttingBoard` slot centered on the column (unit-tested); all 32 tile
-positions + their `hitRadius` circles fall inside the calm center (verify
-with `&artGuides=1&assetSlots=1`); never viewport-wide on any format.
+full-bleed rectangle) — present, detected by
+`tests/assets/environmentAssetFiles.test.ts`; `cuttingBoard` slot centered on
+the column (unit-tested); all 32 tile positions + their `hitRadius` circles
+fall inside the calm center (verify with `&artGuides=1&assetSlots=1`); never
+viewport-wide on any format.
 
 ---
 

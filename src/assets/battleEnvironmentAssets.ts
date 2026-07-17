@@ -100,9 +100,7 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     responsivePolicy: 'gameplayColumnObject',
     depth: DEPTH.TABLE,
     // Real measured dimensions (see tests/assets/environmentAssetFiles.test.ts).
-    // NOTE: portrait 1086x1448 (ratio 0.75) — see that file's header comment
-    // for why this does not yet match the contract's expected landscape fit.
-    productionSize: { width: 1086, height: 1448, aspectRatio: 0.75 },
+    productionSize: { width: 1064, height: 1044, aspectRatio: 1064 / 1044 },
     status: 'available',
   },
   {
