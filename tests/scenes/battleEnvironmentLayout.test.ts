@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from '../../src/scenes/battleLayout';
 import type { BattleLayout } from '../../src/scenes/battleLayout';
-import {
-  computeBattleEnvironmentLayout,
-  DEFAULT_ENVIRONMENT_SLOT_POLICY,
-  placementToRect,
-  ENVIRONMENT_ROLES,
-} from '../../src/scenes/battleEnvironmentLayout';
+import { computeBattleEnvironmentLayout, placementToRect, ENVIRONMENT_ROLES } from '../../src/scenes/battleEnvironmentLayout';
 import { BATTLE_ENVIRONMENT_ASSETS, environmentAssetByRole } from '../../src/assets/battleEnvironmentAssets';
 import { cellToPixel } from '../../src/scenes/boardGeometry';
 import { getAllCells } from '../../src/core/grid';
@@ -28,19 +23,22 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
   const layout = layoutAt(width, height);
   const env = computeBattleEnvironmentLayout(layout);
 
-  it('computes all five placements', () => {
+  it('computes exactly two placements', () => {
     for (const role of ENVIRONMENT_ROLES) {
       expect(env[role]).toBeDefined();
     }
     expect(Object.keys(env).sort()).toEqual([...ENVIRONMENT_ROLES].sort());
+    expect(Object.keys(env)).toHaveLength(2);
   });
 
-  it('no longer defines the retired upperArchitecture/stoneFloor roles', () => {
-    expect(ENVIRONMENT_ROLES as readonly string[]).not.toContain('upperArchitecture');
-    expect(ENVIRONMENT_ROLES as readonly string[]).not.toContain('stoneFloor');
-    expect(Object.keys(env)).not.toContain('upperArchitecture');
-    expect(Object.keys(env)).not.toContain('stoneFloor');
+  it('no longer defines any of the five retired roles', () => {
+    const retired = ['upperArchitecture', 'stoneFloor', 'prepTableBase', 'cuttingBoard', 'leftHearth', 'rightLarder'];
+    for (const role of retired) {
+      expect(ENVIRONMENT_ROLES as readonly string[]).not.toContain(role);
+      expect(Object.keys(env)).not.toContain(role);
+    }
     expect(ENVIRONMENT_ROLES).toContain('battleBackgroundUpper');
+    expect(ENVIRONMENT_ROLES).toContain('battleBackgroundLower');
   });
 
   it('contains no NaN or Infinity anywhere', () => {
@@ -59,47 +57,7 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
     }
   });
 
-  it('prepTableBase matches layout.table exactly', () => {
-    expect(placementToRect(env.prepTableBase)).toEqual(layout.table);
-  });
-
-  it('keeps the cutting board centered on the gameplay column', () => {
-    const rect = placementToRect(env.cuttingBoard);
-    const columnCenter = layout.gameplayColumn.x + layout.gameplayColumn.width / 2;
-    expect(rect.x + rect.width / 2).toBeCloseTo(columnCenter, 9);
-  });
-
-  it('derives the cutting board from tileBounds plus the policy margins', () => {
-    const tiles = layout.board.tileBounds;
-    const p = DEFAULT_ENVIRONMENT_SLOT_POLICY;
-    const rect = placementToRect(env.cuttingBoard);
-    expect(rect.width).toBeCloseTo(tiles.width * (1 + 2 * p.cuttingBoardSideMarginFraction), 9);
-    expect(rect.height).toBeCloseTo(
-      tiles.height * (1 + p.cuttingBoardTopMarginFraction + p.cuttingBoardBottomMarginFraction),
-      9,
-    );
-    // Natural top, then the Y-only minimumBoardTopGap clamp below the seam.
-    const naturalTop = tiles.y - tiles.height * p.cuttingBoardTopMarginFraction;
-    expect(rect.y).toBeCloseTo(Math.max(naturalTop, layout.table.y + p.minimumBoardTopGap), 9);
-    // The margins fully enclose the tiles.
-    expect(rect.x).toBeLessThan(tiles.x);
-    expect(rect.x + rect.width).toBeGreaterThan(tiles.x + tiles.width);
-    expect(rect.y).toBeLessThan(tiles.y);
-    expect(rect.y + rect.height).toBeGreaterThan(tiles.y + tiles.height);
-  });
-
-  it('anchors the clusters flush to the viewport edges', () => {
-    const left = placementToRect(env.leftHearth);
-    const right = placementToRect(env.rightLarder);
-    expect(left.x).toBe(0);
-    expect(right.x + right.width).toBeCloseTo(width, 9);
-    // Same vertical span, standing on the stone/wood separation.
-    expect(left.y).toBeCloseTo(right.y, 9);
-    expect(left.y + left.height).toBeCloseTo(layout.table.y, 9);
-    expect(right.y + right.height).toBeCloseTo(layout.table.y, 9);
-  });
-
-  it('covers the entire upper band with battleBackgroundUpper, viewport-centered, down to layout.table.y', () => {
+  it('covers the upper band from the viewport top down to layout.table.y, viewport-centered', () => {
     const bg = placementToRect(env.battleBackgroundUpper);
     expect(bg).toEqual({ x: 0, y: 0, width, height: layout.table.y });
     expect(env.battleBackgroundUpper.originX).toBe(0.5);
@@ -109,37 +67,29 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
     expect(env.battleBackgroundUpper.height).toBe(layout.table.y);
   });
 
-  it('keeps the cutting board top at least minimumBoardTopGap below the seam', () => {
-    const rect = placementToRect(env.cuttingBoard);
-    expect(rect.y).toBeGreaterThanOrEqual(layout.table.y + DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap);
-    // The shifted frame still fully encloses the tiles and stays inside the
-    // preparation band (no bottom overflow at the reference formats).
-    const tiles = layout.board.tileBounds;
-    expect(rect.y).toBeLessThan(tiles.y);
-    expect(rect.y + rect.height).toBeGreaterThan(tiles.y + tiles.height);
-    expect(rect.y + rect.height).toBeLessThanOrEqual(layout.table.y + layout.table.height);
-  });
-
-  it('lets the clamp change only the cutting board Y, nothing else', () => {
-    const unclamped = computeBattleEnvironmentLayout(layoutAt(width, height), {
-      ...DEFAULT_ENVIRONMENT_SLOT_POLICY,
-      minimumBoardTopGap: -Infinity,
+  it('covers the lower band from layout.table.y down to the viewport bottom, viewport-centered', () => {
+    const bg = placementToRect(env.battleBackgroundLower);
+    expect(bg).toEqual({
+      x: 0,
+      y: layout.table.y,
+      width,
+      height: layout.background.height - layout.table.y,
     });
-    // The five other slots are byte-identical with or without the clamp.
-    for (const role of ENVIRONMENT_ROLES) {
-      if (role === 'cuttingBoard') continue;
-      expect(env[role]).toEqual(unclamped[role]);
-    }
-    // On the board itself, every field except y is untouched.
-    expect(env.cuttingBoard.x).toBe(unclamped.cuttingBoard.x);
-    expect(env.cuttingBoard.width).toBe(unclamped.cuttingBoard.width);
-    expect(env.cuttingBoard.height).toBe(unclamped.cuttingBoard.height);
-    expect(env.cuttingBoard.originX).toBe(unclamped.cuttingBoard.originX);
-    expect(env.cuttingBoard.originY).toBe(unclamped.cuttingBoard.originY);
-    expect(env.cuttingBoard.y).toBeGreaterThanOrEqual(unclamped.cuttingBoard.y);
+    expect(env.battleBackgroundLower.originX).toBe(0.5);
+    expect(env.battleBackgroundLower.originY).toBe(0);
+    expect(env.battleBackgroundLower.x).toBe(width / 2);
+    expect(env.battleBackgroundLower.y).toBe(layout.table.y);
   });
 
-  it('leaves the 32 cell positions and tileBounds untouched by the clamp', () => {
+  it('shares the exact seam: upper bottom edge === lower top edge === layout.table.y', () => {
+    const upper = placementToRect(env.battleBackgroundUpper);
+    const lower = placementToRect(env.battleBackgroundLower);
+    expect(upper.y + upper.height).toBe(layout.table.y);
+    expect(lower.y).toBe(layout.table.y);
+    expect(upper.y + upper.height).toBe(lower.y);
+  });
+
+  it('leaves the 32 cell positions and tileBounds untouched', () => {
     const fresh = layoutAt(width, height);
     const cellsBefore = getAllCells().map((c) => cellToPixel(fresh.board, c.row, c.col));
     const tileBoundsBefore = { ...fresh.board.tileBounds };
@@ -171,63 +121,30 @@ describe.each(VIEWPORTS)('computeBattleEnvironmentLayout at $width x $height', (
   });
 });
 
-describe('tablet-specific constraints (768 x 1024)', () => {
-  const layout = layoutAt(768, 1024);
-  const env = computeBattleEnvironmentLayout(layout);
-
-  it('never stretches the cutting board to the viewport or table width', () => {
-    const rect = placementToRect(env.cuttingBoard);
-    expect(rect.width).toBeLessThan(768);
-    expect(rect.width).toBeLessThan(layout.table.width);
-    // It stays inside the gameplay column.
-    expect(rect.x).toBeGreaterThanOrEqual(layout.gameplayColumn.x);
-    expect(rect.x + rect.width).toBeLessThanOrEqual(layout.gameplayColumn.x + layout.gameplayColumn.width);
-  });
-
-  it('caps the cluster width by policy instead of growing with the viewport', () => {
-    const p = DEFAULT_ENVIRONMENT_SLOT_POLICY;
-    const expected = Math.min(768 * p.clusterWidthFraction, p.clusterMaxWidth);
-    expect(env.leftHearth.width).toBeCloseTo(expected, 9);
-    expect(env.rightLarder.width).toBeCloseTo(expected, 9);
-  });
-
-  it('does not move the cutting board when the natural gap is already sufficient', () => {
-    // On tablet the natural top sits well below table.y + gap, so the clamp
-    // must not alter the validated placement at all.
-    const tiles = layout.board.tileBounds;
-    const naturalTop = tiles.y - tiles.height * DEFAULT_ENVIRONMENT_SLOT_POLICY.cuttingBoardTopMarginFraction;
-    expect(naturalTop).toBeGreaterThan(layout.table.y + DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap);
-    expect(placementToRect(env.cuttingBoard).y).toBeCloseTo(naturalTop, 9);
-  });
-});
-
-describe('slot policy contract values', () => {
-  it('pins the validated cluster cap and board top gap', () => {
-    expect(DEFAULT_ENVIRONMENT_SLOT_POLICY.clusterMaxWidth).toBe(220);
-    expect(DEFAULT_ENVIRONMENT_SLOT_POLICY.minimumBoardTopGap).toBe(8);
-  });
-});
-
 describe('manifest consistency', () => {
-  it('defines exactly five assets with unique keys, paths, and roles', () => {
-    expect(BATTLE_ENVIRONMENT_ASSETS).toHaveLength(5);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.key)).size).toBe(5);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.path)).size).toBe(5);
-    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)).size).toBe(5);
+  it('defines exactly two assets with unique keys, paths, and roles', () => {
+    expect(BATTLE_ENVIRONMENT_ASSETS).toHaveLength(2);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.key)).size).toBe(2);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.path)).size).toBe(2);
+    expect(new Set(BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)).size).toBe(2);
     expect([...BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role)].sort()).toEqual([...ENVIRONMENT_ROLES].sort());
   });
 
-  it('no longer declares the retired upperArchitecture/stoneFloor roles', () => {
+  it('no longer declares any of the five retired roles', () => {
     const roles = BATTLE_ENVIRONMENT_ASSETS.map((a) => a.role);
-    expect(roles).not.toContain('upperArchitecture');
-    expect(roles).not.toContain('stoneFloor');
+    const retired = ['upperArchitecture', 'stoneFloor', 'prepTableBase', 'cuttingBoard', 'leftHearth', 'rightLarder'];
+    for (const role of retired) {
+      expect(roles).not.toContain(role);
+    }
     expect(roles).toContain('battleBackgroundUpper');
+    expect(roles).toContain('battleBackgroundLower');
   });
 
-  it('roots every path under the environment production tree with the matching extension', () => {
+  it('roots every path under the environment production tree with the .webp extension', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
       expect(a.path.startsWith('/assets/battle/environment/')).toBe(true);
-      expect(a.path.endsWith(`.${a.format}`)).toBe(true);
+      expect(a.path.endsWith('.webp')).toBe(true);
+      expect(a.format).toBe('webp');
     }
   });
 
@@ -235,53 +152,38 @@ describe('manifest consistency', () => {
     expect(environmentAssetByRole('battleBackgroundUpper').path).toBe(
       '/assets/battle/environment/background/battle_bg_upper.webp',
     );
-    expect(environmentAssetByRole('prepTableBase').path).toBe(
-      '/assets/battle/environment/preparation/battle_prep_table_base.webp',
-    );
-    expect(environmentAssetByRole('cuttingBoard').path).toBe(
-      '/assets/battle/environment/preparation/battle_prep_cutting_board.png',
-    );
-    expect(environmentAssetByRole('leftHearth').path).toBe(
-      '/assets/battle/environment/props/left/battle_left_hearth_cluster.png',
-    );
-    expect(environmentAssetByRole('rightLarder').path).toBe(
-      '/assets/battle/environment/props/right/battle_right_larder_cluster.png',
+    expect(environmentAssetByRole('battleBackgroundLower').path).toBe(
+      '/assets/battle/environment/background/battle_bg_lower.webp',
     );
   });
 
-  it('requires alpha exactly for the png clusters/board and never for opaque webp layers', () => {
+  it('never requires alpha for either opaque webp background', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
-      expect(a.alphaRequired).toBe(a.format === 'png');
+      expect(a.alphaRequired).toBe(false);
     }
   });
 
-  it('marks exactly the three produced assets as available and the two clusters as pending', () => {
-    const byStatus = (status: 'available' | 'pending') =>
-      BATTLE_ENVIRONMENT_ASSETS.filter((a) => a.status === status)
-        .map((a) => a.role)
-        .sort();
-    expect(byStatus('available')).toEqual(['battleBackgroundUpper', 'cuttingBoard', 'prepTableBase'].sort());
-    expect(byStatus('pending')).toEqual(['leftHearth', 'rightLarder'].sort());
+  it('marks both backgrounds as pending (neither final illustration exists yet)', () => {
+    expect(BATTLE_ENVIRONMENT_ASSETS.every((a) => a.status === 'pending')).toBe(true);
   });
 
-  it('declares strictly positive production dimensions for all five assets', () => {
+  it('declares strictly positive target dimensions for both pending assets', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
-      expect(a.productionSize).toBeDefined();
-      expect(a.productionSize.width).toBeGreaterThan(0);
-      expect(a.productionSize.height).toBeGreaterThan(0);
-      expect(a.productionSize.aspectRatio).toBeGreaterThan(0);
-      expect(Number.isInteger(a.productionSize.width)).toBe(true);
-      expect(Number.isInteger(a.productionSize.height)).toBe(true);
+      expect(a.status).toBe('pending');
+      if (a.status !== 'pending') continue; // narrows for TS
+      expect(a.targetSize.width).toBeGreaterThan(0);
+      expect(a.targetSize.height).toBeGreaterThan(0);
+      expect(a.targetSize.aspectRatio).toBeGreaterThan(0);
+      expect(Number.isInteger(a.targetSize.width)).toBe(true);
+      expect(Number.isInteger(a.targetSize.height)).toBe(true);
     }
   });
 
-  it('keeps every declared aspect ratio consistent with its dimensions', () => {
+  it('keeps each declared aspect ratio consistent with its target dimensions', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
-      const { width, height, aspectRatio } = a.productionSize;
+      if (a.status !== 'pending') continue;
+      const { width, height, aspectRatio } = a.targetSize;
       expect(Math.abs(aspectRatio - width / height)).toBeLessThan(0.005);
     }
-    // The cutting board's ratio drives its uniform slot fit: high precision.
-    const board = environmentAssetByRole('cuttingBoard').productionSize;
-    expect(board.aspectRatio).toBeCloseTo(board.width / board.height, 9);
   });
 });
