@@ -133,11 +133,12 @@ test('a resize regrows the board and hitboxes follow it, with no stale hit posit
   const freshHit = await page.evaluate(() => window.__debug!.getSelectionLength());
   await page.mouse.up();
 
+  // At 360x640 -> 768x1024 the board's hit radius and position shift by
+  // enough (hundreds of px; hit radii ~20 vs ~42 game units, far smaller than
+  // the shift) that the old and new hit circles for this cell cannot overlap
+  // — so the stale position is deterministically no longer hit-testable.
+  expect(staleHit).toBe(0);
   expect(freshHit).toBe(1);
-  // (staleHit may legitimately be 1 too if the two cells' hit circles happen to
-  // overlap at these two sizes; the meaningful guarantee is that the FRESH
-  // position always hits — asserted above.)
-  void staleHit;
 
   // A full turn still scores after the resize.
   await playTurnAndAssertScores(page);
