@@ -129,3 +129,36 @@ for (const vp of FORMATS) {
     expect(counts.hero).toBe(8);
   });
 }
+
+// 2026-07-18 Lot 2: battleBackgroundLower is hidden in normal gameplay but
+// stays loaded and persistent (see
+// docs/superpowers/specs/2026-07-18-lot-02-board-responsive-refactor-design.md).
+for (const vp of FORMATS) {
+  test(`battleBackgroundLower stays loaded/persistent but invisible in normal mode (${vp.width}x${vp.height})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(vp);
+    await page.goto('/?seed=1&debug=1');
+    await page.waitForSelector('[data-scene="battle"]');
+
+    const info = await page.evaluate(() => window.__debug!.getLowerBackgroundDebugInfo());
+    expect(info.loaded).toBe(true);
+    expect(info.objectCount).toBe(1);
+    expect(info.visibleInNormalMode).toBe(false);
+
+    // battleBackgroundUpper is unaffected and stays visible/rendered.
+    const counts = await page.evaluate(() => window.__debug!.getLayerObjectCounts());
+    expect(counts.background).toBe(1);
+  });
+}
+
+test('battleBackgroundLower stays loaded and persistent under artReview=combatBackground too', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 720 });
+  await page.goto('/?seed=1&artReview=combatBackground&debug=1');
+  await page.waitForSelector('[data-art-review-ready="true"]');
+  const info = await page.evaluate(() => window.__debug!.getLowerBackgroundDebugInfo());
+  expect(info.loaded).toBe(true);
+  // In this mode the real sprite is removed entirely (existing behavior,
+  // unchanged by Lot 2) in favor of the master reference image.
+  expect(info.objectCount).toBe(0);
+});

@@ -75,6 +75,7 @@ export interface DebugApi {
   getSelectionLength(): number; // selected-cell count (0 after a mid-drag cancel)
   getTracePointCount(): number; // drawn trace points (0 after a clear)
   hasTexture(key: string): boolean; // Phaser texture-manager check (e.g. a background actually loaded)
+  getLowerBackgroundDebugInfo(): { loaded: boolean; objectCount: number; visibleInNormalMode: boolean }; // Lot 2 hide-in-normal-mode surface
   getContainerDepths(): Record<string, number>; // per-container Phaser depth — the z-order regression probe
 }
 
@@ -241,6 +242,15 @@ export class BattleScene extends Phaser.Scene {
         getSelectionLength: () => this.path.length,
         getTracePointCount: () => this.tracePointCount,
         hasTexture: (key) => this.textures.exists(key),
+        getLowerBackgroundDebugInfo: () => {
+          const def = environmentAssetByRole('battleBackgroundLower');
+          const entry = this.environmentBackgrounds.battleBackgroundLower;
+          return {
+            loaded: this.textures.exists(def.key),
+            objectCount: this.tableContainer.length,
+            visibleInNormalMode: entry?.sprite.visible ?? false,
+          };
+        },
         getContainerDepths: () => ({
           background: this.backgroundContainer.depth,
           environment: this.environmentContainer.depth,
@@ -581,6 +591,12 @@ export class BattleScene extends Phaser.Scene {
     const fit = computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
     entry.sprite.setDisplaySize(fit.displayWidth, fit.displayHeight);
     entry.sprite.setPosition(rect.x + fit.x, rect.y + fit.y);
+    // Lot 2 (2026-07-18): the lower background is hidden in normal gameplay —
+    // the puzzle now defines the lower band's geometry instead of aligning to
+    // this artwork. The sprite stays created/masked/updated exactly as
+    // before (never destroyed), so re-enabling it later is a one-line change.
+    // battleBackgroundUpper is unaffected and stays visible.
+    entry.sprite.setVisible(role !== 'battleBackgroundLower');
 
     // Confines the cover-fit sprite strictly to its band, cropping whichever
     // axis the fit overflowed — the same rect both formats' upper/lower bands
