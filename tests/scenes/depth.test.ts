@@ -33,4 +33,10 @@ describe('DEPTH — z-order invariants', () => {
     const values = Object.values(DEPTH);
     expect(new Set(values).size).toBe(values.length);
   });
+
+  it('keeps the Lot 2 temporary lower surface and frame behind the board but above the (hidden) real table sprite', () => {
+    expect(DEPTH.TABLE).toBeLessThan(DEPTH.LOWER_SURFACE);
+    expect(DEPTH.LOWER_SURFACE).toBeLessThan(DEPTH.BOARD_FRAME);
+    expect(DEPTH.BOARD_FRAME).toBeLessThan(DEPTH.BOARD);
+  });
 });

@@ -12,6 +12,8 @@
 // heroes/boss/tiles either.
 export const DEPTH = {
   TABLE: -10,
+  LOWER_SURFACE: -9, // Lot 2 temporary plain surface standing in for the hidden battleBackgroundLower
+  BOARD_FRAME: -8, // Lot 2 temporary responsive frame around the puzzle's own bounds
   BACKGROUND: 0,
   ENVIRONMENT: 10,
   MONSTER: 21,

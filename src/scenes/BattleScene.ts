@@ -77,6 +77,7 @@ export interface DebugApi {
   hasTexture(key: string): boolean; // Phaser texture-manager check (e.g. a background actually loaded)
   getLowerBackgroundDebugInfo(): { loaded: boolean; objectCount: number; visibleInNormalMode: boolean }; // Lot 2 hide-in-normal-mode surface
   getContainerDepths(): Record<string, number>; // per-container Phaser depth — the z-order regression probe
+  getTileGeometry(): { row: number; col: number; x: number; y: number; hitRadius: number }[]; // Lot 2: per-cell rendered center + hit radius
 }
 
 declare global {
@@ -99,6 +100,8 @@ export class BattleScene extends Phaser.Scene {
   private monsterContainer!: Phaser.GameObjects.Container;
   private heroContainer!: Phaser.GameObjects.Container;
   private tableContainer!: Phaser.GameObjects.Container;
+  private lowerSurfaceContainer!: Phaser.GameObjects.Container;
+  private boardFrameContainer!: Phaser.GameObjects.Container;
   private boardLayer!: Phaser.GameObjects.Container;
   private puzzleFeedbackContainer!: Phaser.GameObjects.Container;
   private hudContainer!: Phaser.GameObjects.Container;
@@ -123,6 +126,8 @@ export class BattleScene extends Phaser.Scene {
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
+  private lowerSurfaceGraphics!: Phaser.GameObjects.Graphics;
+  private boardFrameGraphics!: Phaser.GameObjects.Graphics;
   // The single computed layout every draw method + input reads from. All its
   // coordinates are already global (battleLayout applied the offsets), so every
   // container stays at (0,0) scale 1 with no camera/Container transform.
@@ -231,6 +236,8 @@ export class BattleScene extends Phaser.Scene {
           monster: this.monsterContainer.length,
           hero: this.heroContainer.length,
           table: this.tableContainer.length,
+          lowerSurface: this.lowerSurfaceContainer.length,
+          boardFrame: this.boardFrameContainer.length,
           board: this.boardLayer.length,
           puzzleFeedback: this.puzzleFeedbackContainer.length,
           hud: this.hudContainer.length,
@@ -240,6 +247,11 @@ export class BattleScene extends Phaser.Scene {
           assetSlots: this.assetSlotsContainer.length,
         }),
         getSelectionLength: () => this.path.length,
+        getTileGeometry: () =>
+          getAllCells().map((cell) => {
+            const p = cellToPixel(this.activeLayout.board, cell.row, cell.col);
+            return { row: cell.row, col: cell.col, x: p.x, y: p.y, hitRadius: this.activeLayout.board.hitRadius };
+          }),
         getTracePointCount: () => this.tracePointCount,
         hasTexture: (key) => this.textures.exists(key),
         getLowerBackgroundDebugInfo: () => {
@@ -275,6 +287,8 @@ export class BattleScene extends Phaser.Scene {
     this.monsterContainer = this.add.container(0, 0).setDepth(DEPTH.MONSTER);
     this.heroContainer = this.add.container(0, 0).setDepth(DEPTH.HERO);
     this.tableContainer = this.add.container(0, 0).setDepth(DEPTH.TABLE);
+    this.lowerSurfaceContainer = this.add.container(0, 0).setDepth(DEPTH.LOWER_SURFACE);
+    this.boardFrameContainer = this.add.container(0, 0).setDepth(DEPTH.BOARD_FRAME);
     this.boardLayer = this.add.container(0, 0).setDepth(DEPTH.BOARD);
     this.puzzleFeedbackContainer = this.add.container(0, 0).setDepth(DEPTH.PUZZLE_FEEDBACK);
     this.hudContainer = this.add.container(0, 0).setDepth(DEPTH.HUD);
@@ -288,6 +302,10 @@ export class BattleScene extends Phaser.Scene {
 
     this.traceGraphics = this.add.graphics();
     this.puzzleFeedbackContainer.add(this.traceGraphics);
+    this.lowerSurfaceGraphics = this.add.graphics();
+    this.lowerSurfaceContainer.add(this.lowerSurfaceGraphics);
+    this.boardFrameGraphics = this.add.graphics();
+    this.boardFrameContainer.add(this.boardFrameGraphics);
     // Centered above the monster (origin 0.5,0); exact position is set from the
     // composition layout in drawHp().
     this.hpText = this.add.text(0, 0, '', { fontSize: '18px', color: '#ffffff' }).setOrigin(0.5, 0);
@@ -357,6 +375,8 @@ export class BattleScene extends Phaser.Scene {
     this.drawArtReviewBackground(); // no-op unless artReviewMode === 'combatBackground'
     this.drawEnvironment();
     this.drawTable();
+    this.drawLowerSurface(); // Lot 2: temporary plain surface standing in for the hidden artwork
+    this.drawBoardFrame(); // Lot 2: temporary responsive frame around the puzzle's own bounds
     this.drawBoard();
     this.drawHp();
     this.drawCharacterPlaceholders();
@@ -628,6 +648,33 @@ export class BattleScene extends Phaser.Scene {
   // contract — the puzzle tiles (DEPTH.BOARD) draw over it unchanged.
   private drawTable(): void {
     this.drawEnvironmentBackground('battleBackgroundLower', this.tableContainer);
+  }
+
+  // Lot 2 temporary surface (2026-07-18): a plain, sober fill covering exactly
+  // the lower band (== layout.table) — stands in for the hidden
+  // battleBackgroundLower so the band still reads clearly during this
+  // refactor. Persistent Graphics, cleared+redrawn (never recreated) each
+  // reflow. Warm/dark/no-detail per the Lot 2 design decision.
+  private drawLowerSurface(): void {
+    this.lowerSurfaceGraphics.clear();
+    const band = this.activeLayout.table;
+    this.lowerSurfaceGraphics.fillStyle(0x2e1a12, 1);
+    this.lowerSurfaceGraphics.fillRect(band.x, band.y, band.width, band.height);
+  }
+
+  // Lot 2 temporary responsive frame (2026-07-18): a sober rounded rect
+  // around the puzzle's own bounds (layout.boardFrame — tileBounds + a
+  // modest padding, clamped inside the lower band by boardArea.ts). Never
+  // covers a tile: it renders below DEPTH.BOARD and boardFrame is always
+  // clamped inside layout.table, so it can never bleed into the upper
+  // composition either. Persistent Graphics, cleared+redrawn each reflow.
+  private drawBoardFrame(): void {
+    this.boardFrameGraphics.clear();
+    const frame = this.activeLayout.boardFrame;
+    this.boardFrameGraphics.fillStyle(0x3a2417, 1);
+    this.boardFrameGraphics.fillRoundedRect(frame.x, frame.y, frame.width, frame.height, 12);
+    this.boardFrameGraphics.lineStyle(2, 0x1a0f08, 0.85);
+    this.boardFrameGraphics.strokeRoundedRect(frame.x, frame.y, frame.width, frame.height, 12);
   }
 
   // Art review mode only. No-op (and keeps the container empty) unless
