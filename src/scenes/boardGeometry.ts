@@ -23,6 +23,10 @@ const BBOX_HEIGHT = 4 * ROW_HEIGHT + 2 * STONE_RADIUS; // 236
 // be within hitRadius of two cells at once.
 const EPSILON = 1e-6;
 
+// Fixed scale-1 honeycomb bbox — a topology constant (COLS=7, tallest column
+// 5 rows), exported so callers/tests never re-derive it by hand.
+export const NORMALIZED_BOARD_BOUNDS = { width: BBOX_WIDTH, height: BBOX_HEIGHT };
+
 export interface BoardGeometry {
   originX: number;
   originY: number;
@@ -30,6 +34,7 @@ export interface BoardGeometry {
   rowHeight: number;
   visualRadius: number; // drawing only — ALWAYS STONE_RADIUS * scale (never floored independently)
   hitRadius: number; // pointer acquisition only (separate; may exceed visualRadius, capped)
+  scale?: number; // isotropic scale actually applied — set by computeResponsiveBoardGeometry only
   tileBounds: Rect;
   // Optional diagnostics (never fed back into geometry; useful for tests + M6 tuning):
   horizontalFitScale?: number; // targetTileWidth / BBOX_WIDTH
@@ -123,6 +128,41 @@ export function computeBoardGeometry(input: BoardGeometryInput): BoardGeometry {
     verticalFitScale: verticalFit,
     targetVisualRadiusSatisfied: visualRadius >= input.targetMinVisualRadius,
   };
+}
+
+// Fits the fixed-topology honeycomb into an arbitrary rect with the largest
+// isotropic scale that keeps it fully inside — no column/tableSpan coupling,
+// no vertical bias, no per-cell offset: the tile bounds are centered on
+// `rect`'s full bounds (2026-07-18 Lot 2 refactor — see
+// docs/superpowers/specs/2026-07-18-lot-02-board-responsive-refactor-design.md).
+// `computeBoardGeometry` above is kept as-is for `legacyBoard`
+// (battleLayout.ts's combatScale/hero-centering derivation only).
+export function computeResponsiveBoardGeometry(rect: Rect, targetMinHitRadius: number): BoardGeometry {
+  const scaleFromWidth = rect.width / BBOX_WIDTH;
+  const scaleFromHeight = rect.height / BBOX_HEIGHT;
+  const scale = Math.max(0, Math.min(scaleFromWidth, scaleFromHeight));
+
+  const colWidth = COL_WIDTH * scale;
+  const rowHeight = ROW_HEIGHT * scale;
+  const visualRadius = STONE_RADIUS * scale;
+  const scaledBboxW = 6 * colWidth + 2 * visualRadius;
+  const scaledBboxH = 4 * rowHeight + 2 * visualRadius;
+
+  const originX = rect.x + (rect.width - scaledBboxW) / 2 + visualRadius;
+  const originY = rect.y + (rect.height - scaledBboxH) / 2 + visualRadius;
+
+  const minCenterDistance = rowHeight;
+  const maximumHitRadius = minCenterDistance / 2 - EPSILON;
+  const hitRadius = scale > 0 ? Math.min(maximumHitRadius, Math.max(visualRadius, targetMinHitRadius)) : 0;
+
+  const tileBounds: Rect = {
+    x: originX - visualRadius,
+    y: originY - visualRadius,
+    width: scaledBboxW,
+    height: scaledBboxH,
+  };
+
+  return { originX, originY, colWidth, rowHeight, visualRadius, hitRadius, tileBounds, scale };
 }
 
 // Converts a logical (row, col) cell into the ABSOLUTE stage-space position of

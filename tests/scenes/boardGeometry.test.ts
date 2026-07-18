@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { computeBoardGeometry, cellToPixel, cellAtPixel } from '../../src/scenes/boardGeometry';
+import {
+  computeBoardGeometry,
+  cellToPixel,
+  cellAtPixel,
+  computeResponsiveBoardGeometry,
+  NORMALIZED_BOARD_BOUNDS,
+} from '../../src/scenes/boardGeometry';
 import type { BoardGeometry } from '../../src/scenes/boardGeometry';
 import { DEFAULT_BATTLE_LAYOUT_POLICY, resolveBoardGeometryInput } from '../../src/scenes/battleLayout';
 import { HexGrid, fillBoard } from '../../src/core/grid';
@@ -130,5 +136,101 @@ describe('computeBoardGeometry — narrow-viewport widening stays isotropic and 
     expect(g.tileBounds.x).toBeGreaterThanOrEqual(column.x - 1e-6);
     expect(g.tileBounds.x + g.tileBounds.width).toBeLessThanOrEqual(column.x + column.width + 1e-6);
     expect(g.hitRadius).toBeLessThan(g.rowHeight / 2);
+  });
+});
+
+describe('computeResponsiveBoardGeometry — fits the honeycomb to an arbitrary rect', () => {
+  it('exposes the fixed scale-1 honeycomb bbox as a topology constant', () => {
+    expect(NORMALIZED_BOARD_BOUNDS).toEqual({ width: 380, height: 236 });
+  });
+
+  it('is isotropic: colWidth/56 === rowHeight/48 === visualRadius/22 === scale', () => {
+    const g = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 400, height: 400 }, 20);
+    expect(g.colWidth / 56).toBeCloseTo(g.rowHeight / 48, 9);
+    expect(g.visualRadius / 22).toBeCloseTo(g.rowHeight / 48, 9);
+    expect(g.scale).toBeCloseTo(g.rowHeight / 48, 9);
+  });
+
+  it('picks scale = min(widthFit, heightFit) — width-bound case', () => {
+    const rect = { x: 10, y: 20, width: 380, height: 1000 }; // width is the tight axis
+    const g = computeResponsiveBoardGeometry(rect, 20);
+    expect(g.scale).toBeCloseTo(1, 9);
+    expect(g.tileBounds.width).toBeCloseTo(rect.width, 6);
+  });
+
+  it('picks scale = min(widthFit, heightFit) — height-bound case', () => {
+    const rect = { x: 10, y: 20, width: 1000, height: 236 }; // height is the tight axis
+    const g = computeResponsiveBoardGeometry(rect, 20);
+    expect(g.scale).toBeCloseTo(1, 9);
+    expect(g.tileBounds.height).toBeCloseTo(rect.height, 6);
+  });
+
+  it('centers the full tile bounds (not just a point) inside rect', () => {
+    const rect = { x: 50, y: 100, width: 760, height: 472 };
+    const g = computeResponsiveBoardGeometry(rect, 20);
+    const rectCenterX = rect.x + rect.width / 2;
+    const rectCenterY = rect.y + rect.height / 2;
+    const tbCenterX = g.tileBounds.x + g.tileBounds.width / 2;
+    const tbCenterY = g.tileBounds.y + g.tileBounds.height / 2;
+    expect(tbCenterX).toBeCloseTo(rectCenterX, 6);
+    expect(tbCenterY).toBeCloseTo(rectCenterY, 6);
+  });
+
+  it('confines tileBounds strictly inside rect at every size', () => {
+    for (const rect of [
+      { x: 0, y: 0, width: 200, height: 500 },
+      { x: 20, y: 40, width: 900, height: 300 },
+      { x: 5, y: 5, width: 1500, height: 1200 },
+    ]) {
+      const g = computeResponsiveBoardGeometry(rect, 20);
+      expect(g.tileBounds.x).toBeGreaterThanOrEqual(rect.x - 1e-6);
+      expect(g.tileBounds.y).toBeGreaterThanOrEqual(rect.y - 1e-6);
+      expect(g.tileBounds.x + g.tileBounds.width).toBeLessThanOrEqual(rect.x + rect.width + 1e-6);
+      expect(g.tileBounds.y + g.tileBounds.height).toBeLessThanOrEqual(rect.y + rect.height + 1e-6);
+    }
+  });
+
+  it('fully occupies the constraining axis (a larger scale would overflow rect)', () => {
+    const rect = { x: 0, y: 0, width: 380, height: 1000 }; // width-bound
+    const g = computeResponsiveBoardGeometry(rect, 20);
+    expect(g.tileBounds.width).toBeCloseTo(rect.width, 6);
+    const biggerScale = g.scale * 1.01;
+    const overflowWidth = 6 * (56 * biggerScale) + 2 * (22 * biggerScale);
+    expect(overflowWidth).toBeGreaterThan(rect.width);
+  });
+
+  it('grows monotonically as the rect grows (360 < 480 < 768 reference widths)', () => {
+    const small = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 335, height: 289 }, 20);
+    const mid = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 452, height: 325 }, 20);
+    const large = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 728, height: 462 }, 20);
+    expect(mid.visualRadius).toBeGreaterThan(small.visualRadius);
+    expect(large.visualRadius).toBeGreaterThan(mid.visualRadius);
+  });
+
+  it('keeps hitRadius strictly below half the minimum center distance (no overlap)', () => {
+    const g = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 728, height: 462 }, 20);
+    expect(g.hitRadius).toBeLessThan(g.rowHeight / 2);
+  });
+
+  it('floors hitRadius at targetMinHitRadius on a tiny rect, never negative', () => {
+    const g = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 40, height: 40 }, 20);
+    expect(g.hitRadius).toBeGreaterThanOrEqual(0);
+  });
+
+  it('never produces NaN/negative geometry on a degenerate (zero) rect', () => {
+    const g = computeResponsiveBoardGeometry({ x: 0, y: 0, width: 0, height: 0 }, 20);
+    expect(g.scale).toBe(0);
+    expect(g.hitRadius).toBe(0);
+    expect(Number.isFinite(g.tileBounds.x)).toBe(true);
+  });
+
+  it('produces a straight, unrotated honeycomb (columns vertical, uniform row step)', () => {
+    const g = computeResponsiveBoardGeometry({ x: 10, y: 20, width: 728, height: 462 }, 20);
+    for (let col = 0; col < 7; col++) {
+      const p0 = cellToPixel(g, 0, col);
+      const p1 = cellToPixel(g, 1, col);
+      expect(p1.x).toBe(p0.x);
+      expect(p1.y - p0.y).toBeCloseTo(g.rowHeight, 9);
+    }
   });
 });
