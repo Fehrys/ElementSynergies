@@ -100,3 +100,28 @@ test('artReview=combatBackground still masks both real backgrounds (no double-re
   expect(counts.table).toBe(0);
   expect(counts.artReviewBackground).toBe(1);
 });
+
+// 2026-07-18 Lot 2 review fix: the lower background used to render at
+// DEPTH.TABLE (40) — ABOVE the heroes (DEPTH.HERO, 31) — so once it became a
+// full opaque painting instead of a thin table-edge lip, it could visually
+// swallow the heroes whenever their footprint drifted into the lower band
+// (observed at 768x1024). DEPTH.TABLE now sits below MONSTER/HERO/BOARD.
+for (const vp of FORMATS) {
+  test(`the lower background renders strictly behind the heroes, boss, and board (${vp.width}x${vp.height})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(vp);
+    await page.goto('/?seed=1&debug=1');
+    await page.waitForSelector('[data-scene="battle"]');
+
+    const depths = await page.evaluate(() => window.__debug!.getContainerDepths());
+    expect(depths.table).toBeLessThan(depths.hero);
+    expect(depths.table).toBeLessThan(depths.monster);
+    expect(depths.table).toBeLessThan(depths.board);
+
+    // All four heroes (shadow + shape each) are actually drawn, not silently
+    // dropped — the object-count-level companion to the depth check above.
+    const counts = await page.evaluate(() => window.__debug!.getLayerObjectCounts());
+    expect(counts.hero).toBe(8);
+  });
+}

@@ -103,11 +103,20 @@ describe('computePlaceholderLayout', () => {
     });
   });
 
-  it('grounds each hero so its lower edge overlaps the table rear edge by ~8px', () => {
-    const tableTop = computeTableSpan(regions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
-    expect(tableTop).toBeCloseTo(352, 5);
+  it('anchors the hero row a fixed gap below the boss footprint (2026-07-18 review fix)', () => {
+    // Heroes are grounded relative to the boss, not the table span, so the
+    // boss/hero visual relationship stays constant across viewports instead
+    // of drifting toward the table on taller ones — see BOSS_HERO_GAP.
+    const BOSS_HERO_GAP = 12;
     p.heroes.forEach((h) => {
-      expect(h.y + h.height).toBeCloseTo(tableTop + 8, 5); // 360
+      expect(h.y).toBeCloseTo(p.monster.y + p.monster.height + BOSS_HERO_GAP, 5);
+    });
+  });
+
+  it('keeps the hero row well above the table span (independent composition elements)', () => {
+    const tableTop = computeTableSpan(regions(CANVAS_WIDTH, CANVAS_HEIGHT)).top;
+    p.heroes.forEach((h) => {
+      expect(h.y + h.height).toBeLessThan(tableTop);
     });
   });
 });

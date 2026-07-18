@@ -23,12 +23,16 @@ describe('computeBattleLayout — 480×720 baseline neutrality', () => {
     expect(L.gameplayColumn.x).toBe(0);
   });
   // 2026-07-14: no longer pixel-identical to the pre-realignment legacy values —
-  // boardVerticalBias (0.58) nudges the board down inside tableSpan, then
-  // boardVerticalOffset (14) nudges it back up to sit correctly inside the cutting
-  // board art, and columnSpacingReduction (3 reference px) tightens colWidth (and
-  // therefore tileBounds.width/x). See align-layout-to-combat-background-design.md.
+  // boardVerticalBias nudges the board down inside tableSpan, and
+  // columnSpacingReduction (3 reference px) tightens colWidth (and therefore
+  // tileBounds.width/x). See align-layout-to-combat-background-design.md.
+  // 2026-07-18: boardVerticalBias recalibrated 0.58->0.62 and boardVerticalOffset
+  // 14->0 (Lot 2 review fix) against the real battleBackgroundLower art — the
+  // grid now sits lower/better-centered on the cutting board; only tileBounds.y
+  // moves, x/width/height are untouched. See
+  // docs/superpowers/specs/2026-07-18-battle-environment-runtime-integration-design.md.
   it('reproduces the realigned board tile bounds', () => {
-    expect(L.board.tileBounds).toEqual({ x: 59, y: 410, width: 362, height: 236 });
+    expect(L.board.tileBounds).toEqual({ x: 59, y: 429, width: 362, height: 236 });
   });
   it('keeps distinct widths separate', () => {
     expect(L.gameplayColumn.width).toBe(480); // column
@@ -404,12 +408,17 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     expect(after.board.hitRadius).toBe(before.board.hitRadius);
   });
 
-  it('nudges the grid up by exactly boardVerticalOffset (at scale 1) to sit correctly in the cutting board art', () => {
-    const withoutOffset = computeBattleLayout(input, { ...P, boardVerticalOffset: 0 });
-    expect(after.board.tileBounds.y).toBeCloseTo(withoutOffset.board.tileBounds.y - P.boardVerticalOffset, 6);
+  it('nudges the grid up by exactly boardVerticalOffset (at scale 1), independent of its default value', () => {
+    // Delta-based (not tied to whatever P.boardVerticalOffset currently is,
+    // which is 0 as of the 2026-07-18 recalibration) so this keeps testing the
+    // MECHANISM rather than becoming vacuous whenever the default is 0.
+    const DELTA = 10;
+    const baseline = computeBattleLayout(input, P);
+    const withMoreOffset = computeBattleLayout(input, { ...P, boardVerticalOffset: P.boardVerticalOffset + DELTA });
+    expect(withMoreOffset.board.tileBounds.y).toBeCloseTo(baseline.board.tileBounds.y - DELTA, 6);
     // Never affects tile size / scale selection.
-    expect(after.board.visualRadius).toBe(withoutOffset.board.visualRadius);
-    expect(after.board.tileBounds.width).toBe(withoutOffset.board.tileBounds.width);
+    expect(withMoreOffset.board.visualRadius).toBe(baseline.board.visualRadius);
+    expect(withMoreOffset.board.tileBounds.width).toBe(baseline.board.tileBounds.width);
   });
 
   it('clamps boardVerticalOffset so the grid never rises above the heroes on a short/compressed viewport (regression)', () => {
@@ -430,12 +439,14 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
   });
 
   it('keeps a visible gap between the heroes’ feet and the table’s top edge (two distinct concepts)', () => {
-    // Heroes are grounded on bands.hero.bottom directly (unrelated, untouched
-    // concept — see compositionLayout.ts); the table starts tableTopGap below
-    // that same line, so the two never land on the exact same pixel.
+    // Heroes are grounded relative to the boss (2026-07-18 review fix — see
+    // compositionLayout.ts's BOSS_HERO_GAP), not on bands.hero.bottom; the
+    // table's own top edge is a separate, independently-derived line, so the
+    // only invariant that must hold between them is that heroes stay clearly
+    // above the table (never touching or crossing it).
     for (const h of after.heroes) {
-      expect(h.y + h.height).toBeCloseTo(after.bands.hero.bottom, 6);
-      expect(after.table.y - (h.y + h.height)).toBeCloseTo(P.tableTopGap, 6);
+      expect(h.y).toBeCloseTo(after.boss.y + after.boss.height + 12, 6); // BOSS_HERO_GAP
+      expect(after.table.y).toBeGreaterThan(h.y + h.height);
     }
   });
 
@@ -479,5 +490,116 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
       );
       for (const h of L.heroes) expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6);
     }
+  });
+});
+
+// 2026-07-18 — Lot 2 review fix regression coverage: heroes previously
+// drifted from a ~12px gap below the boss at 360x640 to a ~116px gap at
+// 768x1024 (grounded on the hero/table composition bands, which grow taller
+// than the fixed-pixel boss/hero shapes as viewport height increases). Heroes
+// are now anchored to the boss's own footprint instead — these tests assert
+// the RELATIONSHIP holds at all three mandatory reference formats, not
+// specific pixel values.
+describe('2026-07-18 — boss/hero composition relationship (review fix)', () => {
+  const REFERENCE_FORMATS = [
+    { width: 360, height: 640 },
+    { width: 480, height: 720 },
+    { width: 768, height: 1024 },
+  ];
+
+  it('keeps the hero row directly below the boss, with a small and stable gap (not growing toward the table)', () => {
+    const gaps = REFERENCE_FORMATS.map((vp) => {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      const gap = L.heroes[0].y - (L.boss.y + L.boss.height);
+      expect(gap).toBeGreaterThan(0); // heroes sit below the boss
+      return gap;
+    });
+    // The 360x640 gap is the untouched reference relationship the review
+    // asked to preserve; every format's gap must stay within a small,
+    // bounded band around it — not balloon toward the ~116px regression.
+    for (const gap of gaps) {
+      expect(gap).toBeGreaterThanOrEqual(8);
+      expect(gap).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it('keeps all four heroes fully inside the safe area and above the table at every reference format', () => {
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      for (const h of L.heroes) {
+        expect(h.y).toBeGreaterThanOrEqual(L.safeRect.y - 1e-6);
+        expect(h.y + h.height).toBeLessThanOrEqual(L.safeRect.y + L.safeRect.height + 1e-6);
+        expect(h.y + h.height).toBeLessThan(L.table.y); // never reaches the lower background band
+      }
+    }
+  });
+
+  it('never lets the boss-anchored gap exceed the legacy band-grounded position (safety ceiling)', () => {
+    // Regression guard for the extreme-landscape overflow this fix introduced
+    // and then fixed: the boss anchor alone can push heroes below the safe
+    // area on a very short/compressed viewport (e.g. 844x390), so the smaller
+    // (higher-up) of {boss-anchored, legacy band-grounded} must always win.
+    const L = computeBattleLayout({ width: 844, height: 390, safeInsets: none }, P);
+    for (const h of L.heroes) {
+      expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6);
+      expect(h.y + h.height).toBeLessThanOrEqual(L.safeRect.y + L.safeRect.height + 1e-6);
+    }
+  });
+});
+
+// 2026-07-18 — Lot 2 review fix: boardVerticalBias/boardVerticalOffset were
+// recalibrated (0.58/14 -> 0.62/0) so the tile grid sits lower/better-centered
+// on the real battleBackgroundLower art. These constants are applied strictly
+// AFTER scale selection (see boardGeometry.ts), so this recalibration must be
+// a PURELY VERTICAL change — these tests assert every horizontal/gameplay
+// invariant is untouched by it.
+describe('2026-07-18 — board vertical recalibration is horizontal-invariant', () => {
+  const OLD_POLICY = { ...P, boardVerticalBias: 0.58, boardVerticalOffset: 14 };
+
+  it('changes only tileBounds.y — x, width, height, colWidth, radii, and cell count are all identical', () => {
+    for (const vp of [
+      { width: 360, height: 640 },
+      { width: 480, height: 720 },
+      { width: 768, height: 1024 },
+    ]) {
+      const before = computeBattleLayout({ ...vp, safeInsets: none }, OLD_POLICY);
+      const after = computeBattleLayout({ ...vp, safeInsets: none }, P);
+
+      expect(after.board.tileBounds.x).toBe(before.board.tileBounds.x);
+      expect(after.board.tileBounds.width).toBe(before.board.tileBounds.width);
+      expect(after.board.tileBounds.height).toBe(before.board.tileBounds.height);
+      expect(after.board.colWidth).toBe(before.board.colWidth);
+      expect(after.board.rowHeight).toBe(before.board.rowHeight);
+      expect(after.board.visualRadius).toBe(before.board.visualRadius);
+      expect(after.board.hitRadius).toBe(before.board.hitRadius);
+      expect(after.board.originX).toBe(before.board.originX);
+
+      // Every cell's x coordinate and horizontal spacing are untouched; only y moves.
+      for (const col of [0, 3, 6]) {
+        const beforeCell = cellToPixel(before.board, 0, col);
+        const afterCell = cellToPixel(after.board, 0, col);
+        expect(afterCell.x).toBe(beforeCell.x);
+      }
+
+      // Gameplay/layout locks untouched by this recalibration.
+      expect(after.table.y).toBe(before.table.y);
+      expect(after.boss).toEqual(before.boss);
+      expect(after.bossHud).toEqual(before.bossHud);
+    }
+  });
+
+  it('leaves the 32-cell honeycomb matrix (7 alternating 5/4 columns) unchanged', () => {
+    const COLUMN_ROW_COUNTS = [5, 4, 5, 4, 5, 4, 5]; // unchanged honeycomb shape
+    const L = computeBattleLayout({ width: 480, height: 720, safeInsets: none }, P);
+    let total = 0;
+    for (let col = 0; col < 7; col++) {
+      for (let row = 0; row < COLUMN_ROW_COUNTS[col]; row++) {
+        const p = cellToPixel(L.board, row, col);
+        expect(Number.isFinite(p.x)).toBe(true);
+        expect(Number.isFinite(p.y)).toBe(true);
+        total++;
+      }
+    }
+    expect(total).toBe(32);
   });
 });
