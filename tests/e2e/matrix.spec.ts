@@ -179,10 +179,12 @@ test('mobile landscape 844x390: no clip, all cells reachable, precise drag, chro
   expect(L.bands.topHud.height / sr.height).toBeLessThan(nominalHeight(P.bands.topHud));
   expect(L.bands.board.height / sr.height).toBeGreaterThan(nominalHeight(P.bands.board));
 
-  // No critical overlap: heroes sit above the board; board inside the column.
+  // No critical overlap: heroes sit above the board.
   for (const h of L.heroes) expect(h.y + h.height).toBeLessThanOrEqual(tb.y + EPS);
-  expect(tb.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - EPS);
-  expect(tb.x + tb.width).toBeLessThanOrEqual(L.gameplayColumn.x + L.gameplayColumn.width + EPS);
+  // Board inside the safe rect (2026-07-18 Lot 2: the board is sized from the
+  // full-width lower band, not gameplayColumn — see boardArea.ts).
+  expect(tb.x).toBeGreaterThanOrEqual(L.safeRect.x - EPS);
+  expect(tb.x + tb.width).toBeLessThanOrEqual(L.safeRect.x + L.safeRect.width + EPS);
 
   // Radii obtained: visualRadius isotropic (recovered from rowHeight — colWidth is
   // deliberately NOT isotropic with it since the column-pitch reduction, M#4),
