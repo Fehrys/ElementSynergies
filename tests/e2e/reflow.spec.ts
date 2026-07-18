@@ -180,10 +180,15 @@ test('a real mid-session resize reflows on the next frame and keeps clicks accur
   await page.goto('/?seed=1&debug=1');
   await page.waitForSelector('[data-scene="battle"]');
 
-  // Baseline neutrality under the RESIZE transport: at 480x720 the board is still
-  // pixel-for-pixel the realigned (2026-07-14) reference geometry.
+  // Baseline neutrality under the RESIZE transport: at 480x720 the board matches
+  // the Node model's formula-based geometry (Lot 2: fit to availableBoardRect,
+  // not a hand-copied literal, so it can never drift from Task 4/5's implementation).
   const l480 = await page.evaluate(() => window.__debug!.getBattleLayout());
-  expect(l480.board.tileBounds).toEqual({ x: 59, y: 429, width: 362, height: 236 });
+  const node480 = computeBattleLayout(
+    { width: 480, height: 720, safeInsets: { top: 0, right: 0, bottom: 0, left: 0 } },
+    DEFAULT_BATTLE_LAYOUT_POLICY,
+  );
+  expect(l480.board.tileBounds).toEqual(node480.board.tileBounds);
 
   // First scoring turn at 480x720.
   const startHp = Number(await page.getAttribute('body', 'data-monster-hp'));

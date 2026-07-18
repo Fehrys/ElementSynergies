@@ -9,6 +9,9 @@ import {
   resolveBandRanges,
   baseTileWidthFraction,
 } from '../../src/scenes/battleLayout';
+import { computeAvailableBoardRect } from '../../src/scenes/boardArea';
+import { computeResponsiveBoardGeometry } from '../../src/scenes/boardGeometry';
+import { HexGrid, getAllCells } from '../../src/core/grid';
 import { cellToPixel } from '../../src/scenes/boardGeometry';
 
 const noInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -22,22 +25,22 @@ describe('computeBattleLayout — 480×720 baseline neutrality', () => {
     expect(L.gameplayColumn.width).toBe(480);
     expect(L.gameplayColumn.x).toBe(0);
   });
-  // 2026-07-14: no longer pixel-identical to the pre-realignment legacy values —
-  // boardVerticalBias nudges the board down inside tableSpan, and
-  // columnSpacingReduction (3 reference px) tightens colWidth (and therefore
-  // tileBounds.width/x). See align-layout-to-combat-background-design.md.
-  // 2026-07-18: boardVerticalBias recalibrated 0.58->0.62 and boardVerticalOffset
-  // 14->0 (Lot 2 review fix) against the real battleBackgroundLower art — the
-  // grid now sits lower/better-centered on the cutting board; only tileBounds.y
-  // moves, x/width/height are untouched. See
-  // docs/superpowers/specs/2026-07-18-battle-environment-runtime-integration-design.md.
-  it('reproduces the realigned board tile bounds', () => {
-    expect(L.board.tileBounds).toEqual({ x: 59, y: 429, width: 362, height: 236 });
+  // 2026-07-18 Lot 2: the board is no longer aligned to the legacy
+  // column-constrained geometry — it fits availableBoardRect (a modest inset
+  // of the full lower band). See tests/scenes/boardGeometry.test.ts and
+  // tests/scenes/boardArea.test.ts for the formula's own unit coverage; this
+  // just cross-checks the two are wired together correctly at the 480x720
+  // reference format.
+  it('fits the board to availableBoardRect, not to gameplayColumn/legacyBoard', () => {
+    const avail = computeAvailableBoardRect(L.table, { top: 0, right: 0, bottom: 0, left: 0 });
+    const expected = computeResponsiveBoardGeometry(avail, DEFAULT_BATTLE_LAYOUT_POLICY.targetMinHitRadius);
+    expect(L.availableBoardRect).toEqual(avail);
+    expect(L.board.tileBounds).toEqual(expected.tileBounds);
+    expect(L.board.scale).toBeCloseTo(expected.scale!, 9);
   });
   it('keeps distinct widths separate', () => {
     expect(L.gameplayColumn.width).toBe(480); // column
     expect(L.table.width).toBe(480); // full-bleed composition band, == viewport width
-    expect(L.board.tileBounds.width).toBe(362); // 6*(56-3) + 2*22
   });
 });
 
@@ -55,19 +58,16 @@ describe('computeBattleLayout — invariants across sizes', () => {
     );
     expect(L.safeRect).toEqual({ x: 0, y: 47, width: 390, height: 844 - 47 - 34 });
   });
-  it('never scales the board anisotropically (single scale factor)', () => {
+  it('never scales the board anisotropically (single isotropic scale)', () => {
     const L = computeBattleLayout({ width: 360, height: 640, safeInsets: noInsets }, DEFAULT_BATTLE_LAYOUT_POLICY);
-    // colWidth is deliberately tightened by columnSpacingReduction*scale (M#4), so the
-    // isotropic scale itself is recovered from rowHeight, not directly from colWidth/56.
-    const scale = L.board.rowHeight / 48;
-    expect(L.board.colWidth).toBeCloseTo(56 * scale - DEFAULT_BATTLE_LAYOUT_POLICY.columnSpacingReduction * scale, 9);
-    expect(L.board.visualRadius).toBeCloseTo(22 * scale, 9);
+    expect(L.board.colWidth / 56).toBeCloseTo(L.board.rowHeight / 48, 9);
+    expect(L.board.visualRadius / 22).toBeCloseTo(L.board.rowHeight / 48, 9);
   });
-  it('keeps the board fully inside the gameplay column', () => {
+  it('keeps the board fully inside availableBoardRect (not gameplayColumn — the puzzle now owns the lower band)', () => {
     const L = computeBattleLayout({ width: 360, height: 640, safeInsets: noInsets }, DEFAULT_BATTLE_LAYOUT_POLICY);
-    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.availableBoardRect.x - 0.5);
     expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
-      L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
+      L.availableBoardRect.x + L.availableBoardRect.width + 0.5,
     );
   });
 });
@@ -118,12 +118,12 @@ describe('computeBattleLayout — global coordinate spaces (offsets applied)', (
     const L = computeBattleLayout({ width: 900, height: 800, safeInsets: none }, DEFAULT_BATTLE_LAYOUT_POLICY);
     expect(L.gameplayColumn.x).toBeGreaterThan(0); // wide → capped, offset column
     const c = L.gameplayColumn.x + L.gameplayColumn.width / 2;
-    // originX is Math.round()'ed, so the board's bbox center can land up to 0.5px off
-    // true center — tighter precision than that would be asserting sub-pixel rounding
-    // behavior, not the centering invariant itself.
-    expect(Math.abs(L.board.tileBounds.x + L.board.tileBounds.width / 2 - c)).toBeLessThanOrEqual(0.5);
     expect(L.table.x + L.table.width / 2).toBeCloseTo(c, 3);
     expect(L.boss.x + L.boss.width / 2).toBeCloseTo(c, 3);
+    // The board is centered on availableBoardRect (== the full-width lower
+    // band's own center), not on gameplayColumn's center — see Task 5's design.
+    const boardRectCenter = L.availableBoardRect.x + L.availableBoardRect.width / 2;
+    expect(L.board.tileBounds.x + L.board.tileBounds.width / 2).toBeCloseTo(boardRectCenter, 3);
   });
   it('offsets bands and board by safeRect.y under a top inset', () => {
     const top = 60;
@@ -144,7 +144,7 @@ describe('computeBattleLayout — global coordinate spaces (offsets applied)', (
     expect(L.safeRect.x).toBe(left);
     expect(L.gameplayColumn.x).toBeGreaterThanOrEqual(left);
     for (const h of L.heroes) expect(h.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
-    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.availableBoardRect.x - 0.5);
   });
 });
 
@@ -176,10 +176,10 @@ describe('computeBattleLayout — synthetic safe-area insets (audit cases)', () 
         expect(L.gameplayColumn.x).toBeCloseTo(L.safeRect.x + (L.safeRect.width - width) / 2, 9);
       });
 
-      it('keeps the board fully inside the gameplay column', () => {
-        expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+      it('keeps the board fully inside availableBoardRect', () => {
+        expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.availableBoardRect.x - 0.5);
         expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
-          L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
+          L.availableBoardRect.x + L.availableBoardRect.width + 0.5,
         );
       });
 
@@ -239,46 +239,6 @@ describe('computeBattleLayout — DPR independence is structural', () => {
 const P = DEFAULT_BATTLE_LAYOUT_POLICY;
 const none = { top: 0, right: 0, bottom: 0, left: 0 };
 
-describe('M6 — horizontal width policy (widening on narrow viewports)', () => {
-  it('keeps the exact 480 baseline fraction and tileBounds width', () => {
-    expect(resolveTileWidthFraction(480, P)).toBeCloseTo(baseTileWidthFraction(P), 12);
-    const L = computeBattleLayout({ width: 480, height: 720, safeInsets: none }, P);
-    expect(L.board.tileBounds.width).toBe(362); // 6*(56 - columnSpacingReduction) + 2*22
-  });
-
-  it('widens the puzzle on a 320-wide viewport without overflowing the safeRect', () => {
-    expect(resolveTileWidthFraction(320, P)).toBeGreaterThan(baseTileWidthFraction(P));
-    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
-    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.safeRect.x - 1e-6);
-    expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
-      L.safeRect.x + L.safeRect.width + 1e-6,
-    );
-    // Best-effort minimum visual radius (~14.7 floor) — the widening lifts it above
-    // the bare-baseline 320 value.
-    expect(L.board.visualRadius).toBeGreaterThanOrEqual(14.7);
-  });
-
-  it('saturates at maxTileWidthFraction at/below the saturation width', () => {
-    expect(resolveTileWidthFraction(320, P)).toBeCloseTo(P.maxTileWidthFraction, 12);
-    expect(resolveTileWidthFraction(280, P)).toBeCloseTo(P.maxTileWidthFraction, 12);
-  });
-});
-
-describe('M6 — radius targets, never a clamp on visualRadius', () => {
-  it('keeps visualRadius exactly STONE_RADIUS * scale (isotropic) at 320, and reports the target honestly', () => {
-    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
-    // 22/48 recovers the isotropic scale from rowHeight (untouched by the column-pitch
-    // reduction) — visualRadius is never floored or grown independently of it. colWidth
-    // is deliberately NOT isotropic with visualRadius since 2026-07-14 (see M#4 above).
-    expect(L.board.visualRadius).toBeCloseTo(L.board.rowHeight * (22 / 48), 9);
-    const scale = L.board.rowHeight / 48;
-    expect(L.board.colWidth).toBeCloseTo(56 * scale - P.columnSpacingReduction * scale, 9);
-    expect(typeof L.board.targetVisualRadiusSatisfied).toBe('boolean');
-    // hitRadius is the one true floor, capped below half the min center distance.
-    expect(L.board.hitRadius).toBeLessThan(L.board.rowHeight / 2);
-  });
-});
-
 describe('M6 — vertical degradation order (board reduced last)', () => {
   const height = (b: [number, number]): number => b[1] - b[0];
 
@@ -317,9 +277,9 @@ describe('M6 — tablet / tall-screen invariants', () => {
     const L = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
     expect(L.table.width).toBe(L.background.width); // full-bleed, not column-capped
     expect(L.background).toEqual({ x: 0, y: 0, width: 768, height: 1024 });
-    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
+    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.availableBoardRect.x - 0.5);
     expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
-      L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
+      L.availableBoardRect.x + L.availableBoardRect.width + 0.5,
     );
   });
 
@@ -335,163 +295,6 @@ describe('M6 — tablet / tall-screen invariants', () => {
         expect(h.x + h.width).toBeLessThanOrEqual(L.gameplayColumn.x + L.gameplayColumn.width + 0.5);
         expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6); // grounded above the board
       }
-    }
-  });
-});
-
-describe('M7 — 320x568 support classification (on usable gameplayColumn width, not raw viewport)', () => {
-  it('320x568 with null/moderate lateral insets is FULLY SUPPORTED (target radius met)', () => {
-    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
-    expect(L.gameplayColumn.width).toBe(320); // usable width == viewport width here
-    expect(L.board.visualRadius).toBeGreaterThanOrEqual(P.targetMinVisualRadius); // >= 16
-    expect(L.board.targetVisualRadiusSatisfied).toBe(true);
-  });
-
-  it('the 16 target holds down to ~294 usable column width (22·w·0.94/380 = 16)', () => {
-    // visualRadius is a function of USABLE column width, not the raw viewport.
-    const at294 = computeBattleLayout({ width: 294, height: 568, safeInsets: none }, P);
-    expect(at294.gameplayColumn.width).toBe(294);
-    expect(at294.board.visualRadius).toBeGreaterThanOrEqual(P.targetMinVisualRadius - 0.1); // ≈ 16
-  });
-
-  it('below ~294 usable width it becomes best-effort (below target) but stays overflow-safe', () => {
-    // Narrower USABLE width via lateral insets on a 320 device.
-    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: { top: 0, right: 20, bottom: 0, left: 20 } }, P);
-    expect(L.gameplayColumn.width).toBe(280); // usable width = 320 − 40 insets
-    expect(L.board.visualRadius).toBeLessThan(P.targetMinVisualRadius); // below the 16 target
-    expect(L.board.targetVisualRadiusSatisfied).toBe(false);
-    // Still overflow-safe: the tile bbox stays inside the safeRect.
-    expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.safeRect.x - 1e-6);
-    expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(L.safeRect.x + L.safeRect.width + 1e-6);
-  });
-
-  it('the board keeps at least minimumTablePadding clearance within the gameplay column on the narrowest supported width', () => {
-    // minimumTablePadding still drives the (internal) boardWidthBand heroes/monster
-    // center on — table itself is full-bleed since 2026-07-14, so this checks the
-    // still-meaningful invariant: the tiles never crowd the column's own edges.
-    const L = computeBattleLayout({ width: 320, height: 568, safeInsets: none }, P);
-    const margin = (L.gameplayColumn.width - L.board.tileBounds.width) / 2;
-    expect(margin).toBeGreaterThanOrEqual(P.minimumTablePadding - 1e-6);
-  });
-});
-
-// The pre-2026-07-14 baseline, reconstructed from the current policy rather than
-// hand-copied pixel constants, so these tests prove the DIRECTION of each requested
-// shift instead of asserting brittle magic numbers.
-// See docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
-const PRE_REALIGNMENT_POLICY = {
-  ...P,
-  boardVerticalBias: 0.5,
-  columnSpacingReduction: 0,
-  boardVerticalOffset: 0,
-  tableYFraction: 0.46, // pre-2026-07-14: table.y === bands.hero.bottom exactly (old hero band bottom, no gap)
-  bands: { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
-} as typeof P;
-
-describe('2026-07-14 — realignment to the combat background art target', () => {
-  const input = { width: 480, height: 720, safeInsets: none };
-  const before = computeBattleLayout(input, PRE_REALIGNMENT_POLICY);
-  const after = computeBattleLayout(input, P);
-
-  it('lowers the board inside its span', () => {
-    expect(after.board.tileBounds.y).toBeGreaterThan(before.board.tileBounds.y);
-  });
-
-  it('lowers the boss and heroes, and drops the boss HUD to free a top band', () => {
-    expect(after.boss.y).toBeGreaterThan(before.boss.y);
-    after.heroes.forEach((h, i) => expect(h.y).toBeGreaterThan(before.heroes[i].y));
-    expect(after.bossHud.text.y).toBeGreaterThan(before.bossHud.text.y);
-    expect(after.bossHud.bar.y).toBeGreaterThan(before.bossHud.bar.y);
-  });
-
-  it('tightens the column pitch without touching tile size or hit radius', () => {
-    expect(after.board.colWidth).toBeLessThan(before.board.colWidth);
-    expect(after.board.rowHeight).toBe(before.board.rowHeight);
-    expect(after.board.visualRadius).toBe(before.board.visualRadius);
-    expect(after.board.hitRadius).toBe(before.board.hitRadius);
-  });
-
-  it('nudges the grid up by exactly boardVerticalOffset (at scale 1), independent of its default value', () => {
-    // Delta-based (not tied to whatever P.boardVerticalOffset currently is,
-    // which is 0 as of the 2026-07-18 recalibration) so this keeps testing the
-    // MECHANISM rather than becoming vacuous whenever the default is 0.
-    const DELTA = 10;
-    const baseline = computeBattleLayout(input, P);
-    const withMoreOffset = computeBattleLayout(input, { ...P, boardVerticalOffset: P.boardVerticalOffset + DELTA });
-    expect(withMoreOffset.board.tileBounds.y).toBeCloseTo(baseline.board.tileBounds.y - DELTA, 6);
-    // Never affects tile size / scale selection.
-    expect(withMoreOffset.board.visualRadius).toBe(baseline.board.visualRadius);
-    expect(withMoreOffset.board.tileBounds.width).toBe(baseline.board.tileBounds.width);
-  });
-
-  it('clamps boardVerticalOffset so the grid never rises above the heroes on a short/compressed viewport (regression)', () => {
-    // 844x390 landscape leaves very little vertical room — a naive unclamped nudge
-    // (and a naive Math.round of the clamp itself) can push the tile bbox's top
-    // above the heroes' feet. Both must be prevented.
-    const L = computeBattleLayout({ width: 844, height: 390, safeInsets: none }, P);
-    for (const h of L.heroes) {
-      expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6);
-    }
-  });
-
-  it('redefines table as the full-width lower composition band starting at the fixed tableYFraction', () => {
-    expect(after.table.x).toBe(0);
-    expect(after.table.width).toBe(after.background.width);
-    expect(after.table.y).toBeCloseTo(after.safeRect.y + P.tableYFraction * after.safeRect.height, 9);
-    expect(after.table.y + after.table.height).toBeCloseTo(after.background.height, 9);
-  });
-
-  it('keeps a visible gap between the heroes’ feet and the table’s top edge (two distinct concepts)', () => {
-    // Heroes are grounded relative to the boss (2026-07-18 review fix — see
-    // compositionLayout.ts's BOSS_HERO_GAP), not on bands.hero.bottom; the
-    // table's own top edge is a separate, independently-derived line, so the
-    // only invariant that must hold between them is that heroes stay clearly
-    // above the table (never touching or crossing it).
-    for (const h of after.heroes) {
-      expect(h.y).toBeCloseTo(after.boss.y + after.boss.height + 12, 6); // BOSS_HERO_GAP
-      expect(after.table.y).toBeGreaterThan(h.y + h.height);
-    }
-  });
-
-  it('keeps the board perfectly upright — no rotation, no skew, no per-cell deformation', () => {
-    // A straight honeycomb: every column is a vertical line (x depends only on col),
-    // and within a column consecutive rows step by exactly rowHeight vertically with
-    // zero horizontal drift — i.e. a pure translation grid, never rotated or sheared.
-    for (let col = 0; col < 7; col++) {
-      const p0 = cellToPixel(after.board, 0, col);
-      const p1 = cellToPixel(after.board, 1, col);
-      const p2 = cellToPixel(after.board, 2, col);
-      expect(p1.x).toBe(p0.x); // vertical column line
-      expect(p2.x).toBe(p0.x);
-      expect(p1.y - p0.y).toBeCloseTo(after.board.rowHeight, 9); // uniform row step
-      expect(p2.y - p1.y).toBeCloseTo(after.board.rowHeight, 9);
-    }
-    // Adjacent columns differ only in x (plus the fixed honeycomb half-row shift) —
-    // never in scale or angle.
-    const a = cellToPixel(after.board, 0, 0);
-    const b = cellToPixel(after.board, 0, 1);
-    expect(b.x - a.x).toBeCloseTo(after.board.colWidth, 9);
-  });
-
-  it('stays stable and idempotent across repeated reflows at the new baseline', () => {
-    const first = computeBattleLayout(input, P);
-    const second = computeBattleLayout({ ...input }, P);
-    expect(second).toEqual(first); // pure function: identical input -> identical layout
-  });
-
-  it('keeps every realigned invariant across a resize (360x640 and 768x1024)', () => {
-    for (const vp of [
-      { width: 360, height: 640 },
-      { width: 768, height: 1024 },
-    ]) {
-      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
-      expect(L.table.width).toBe(L.background.width);
-      expect(L.table.y).toBeCloseTo(L.safeRect.y + P.tableYFraction * L.safeRect.height, 9);
-      expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
-      expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
-        L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
-      );
-      for (const h of L.heroes) expect(h.y + h.height).toBeLessThanOrEqual(L.board.tileBounds.y + 1e-6);
     }
   });
 });
@@ -688,59 +491,109 @@ describe('2026-07-19 — table.y ratio stays constant and in the requested range
   });
 });
 
-// 2026-07-18 — Lot 2 review fix: boardVerticalBias/boardVerticalOffset were
-// recalibrated (0.58/14 -> 0.62/0) so the tile grid sits lower/better-centered
-// on the real battleBackgroundLower art. These constants are applied strictly
-// AFTER scale selection (see boardGeometry.ts), so this recalibration must be
-// a PURELY VERTICAL change — these tests assert every horizontal/gameplay
-// invariant is untouched by it.
-describe('2026-07-18 — board vertical recalibration is horizontal-invariant', () => {
-  const OLD_POLICY = { ...P, boardVerticalBias: 0.58, boardVerticalOffset: 14 };
+// 2026-07-18 — Lot 2: the rendered board is fit to availableBoardRect (a
+// modest inset of the full lower band), independent of gameplayColumn/
+// legacyBoard. See docs/superpowers/specs/2026-07-18-lot-02-board-responsive-refactor-design.md.
+describe('2026-07-18 — Lot 2 gameplay-first lower board', () => {
+  const REFERENCE_FORMATS = [
+    { width: 360, height: 640 },
+    { width: 480, height: 720 },
+    { width: 768, height: 1024 },
+  ];
+  // Confinement/topology must also hold at these additional formats the
+  // brief calls out explicitly (320x568, 430x932) plus a landscape format
+  // already exercised elsewhere in this suite (844x390, matrix.spec.ts).
+  const EXTRA_FORMATS = [
+    { width: 320, height: 568 },
+    { width: 430, height: 932 },
+    { width: 844, height: 390 },
+  ];
+  const ALL_FORMATS = [...REFERENCE_FORMATS, ...EXTRA_FORMATS];
 
-  it('changes only tileBounds.y — x, width, height, colWidth, radii, and cell count are all identical', () => {
-    for (const vp of [
-      { width: 360, height: 640 },
-      { width: 480, height: 720 },
-      { width: 768, height: 1024 },
-    ]) {
-      const before = computeBattleLayout({ ...vp, safeInsets: none }, OLD_POLICY);
-      const after = computeBattleLayout({ ...vp, safeInsets: none }, P);
-
-      expect(after.board.tileBounds.x).toBe(before.board.tileBounds.x);
-      expect(after.board.tileBounds.width).toBe(before.board.tileBounds.width);
-      expect(after.board.tileBounds.height).toBe(before.board.tileBounds.height);
-      expect(after.board.colWidth).toBe(before.board.colWidth);
-      expect(after.board.rowHeight).toBe(before.board.rowHeight);
-      expect(after.board.visualRadius).toBe(before.board.visualRadius);
-      expect(after.board.hitRadius).toBe(before.board.hitRadius);
-      expect(after.board.originX).toBe(before.board.originX);
-
-      // Every cell's x coordinate and horizontal spacing are untouched; only y moves.
-      for (const col of [0, 3, 6]) {
-        const beforeCell = cellToPixel(before.board, 0, col);
-        const afterCell = cellToPixel(after.board, 0, col);
-        expect(afterCell.x).toBe(beforeCell.x);
-      }
-
-      // Gameplay/layout locks untouched by this recalibration.
-      expect(after.table.y).toBe(before.table.y);
-      expect(after.boss).toEqual(before.boss);
-      expect(after.bossHud).toEqual(before.bossHud);
+  it('matches computeResponsiveBoardGeometry(computeAvailableBoardRect(table, insets)) exactly, at every reference format', () => {
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      const avail = computeAvailableBoardRect(L.table, none);
+      const expected = computeResponsiveBoardGeometry(avail, P.targetMinHitRadius);
+      expect(L.availableBoardRect).toEqual(avail);
+      expect(L.board.tileBounds).toEqual(expected.tileBounds);
     }
   });
 
-  it('leaves the 32-cell honeycomb matrix (7 alternating 5/4 columns) unchanged', () => {
-    const COLUMN_ROW_COUNTS = [5, 4, 5, 4, 5, 4, 5]; // unchanged honeycomb shape
-    const L = computeBattleLayout({ width: 480, height: 720, safeInsets: none }, P);
-    let total = 0;
-    for (let col = 0; col < 7; col++) {
-      for (let row = 0; row < COLUMN_ROW_COUNTS[col]; row++) {
-        const p = cellToPixel(L.board, row, col);
-        expect(Number.isFinite(p.x)).toBe(true);
-        expect(Number.isFinite(p.y)).toBe(true);
-        total++;
+  it('grows the board strictly across 360 -> 480 -> 768 (puzzle becomes visually dominant)', () => {
+    const sizes = REFERENCE_FORMATS.map(
+      (vp) => computeBattleLayout({ ...vp, safeInsets: none }, P).board.visualRadius,
+    );
+    expect(sizes[1]).toBeGreaterThan(sizes[0]);
+    expect(sizes[2]).toBeGreaterThan(sizes[1]);
+  });
+
+  it('exceeds the old legacy cap (22 * maxBoardScale) at 768x1024 — the puzzle is no longer capped by legacyBoard', () => {
+    const L = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
+    expect(L.board.visualRadius).toBeGreaterThan(22 * P.maxBoardScale);
+  });
+
+  it('is no longer confined to gameplayColumn on a large viewport (the intentional decoupling)', () => {
+    // 1000x700's lower band isn't tall enough for the board's isotropic fit to
+    // exceed the 560 column cap (availableBoardRect's aspect ratio binds on
+    // height there) — a large tablet-portrait format is used instead, where
+    // the lower band has enough height for the board to clearly outgrow
+    // gameplayColumn's chrome cap.
+    const L = computeBattleLayout({ width: 1024, height: 1366, safeInsets: none }, P);
+    expect(L.board.tileBounds.width).toBeGreaterThan(L.gameplayColumn.width);
+  });
+
+  it('keeps availableBoardRect and boardFrame inside the lower band (table) at every format, including 320x568/430x932/844x390 landscape', () => {
+    for (const vp of ALL_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      expect(L.availableBoardRect.x).toBeGreaterThanOrEqual(L.table.x - 1e-6);
+      expect(L.availableBoardRect.y).toBeGreaterThanOrEqual(L.table.y - 1e-6);
+      expect(L.availableBoardRect.x + L.availableBoardRect.width).toBeLessThanOrEqual(L.table.x + L.table.width + 1e-6);
+      expect(L.availableBoardRect.y + L.availableBoardRect.height).toBeLessThanOrEqual(L.table.y + L.table.height + 1e-6);
+      expect(L.boardFrame.x).toBeGreaterThanOrEqual(L.table.x - 1e-6);
+      expect(L.boardFrame.y).toBeGreaterThanOrEqual(L.table.y - 1e-6);
+      expect(L.boardFrame.x + L.boardFrame.width).toBeLessThanOrEqual(L.table.x + L.table.width + 1e-6);
+      expect(L.boardFrame.y + L.boardFrame.height).toBeLessThanOrEqual(L.table.y + L.table.height + 1e-6);
+    }
+  });
+
+  it('never lets the board rise above table.y at any format (the upper composition boundary)', () => {
+    for (const vp of ALL_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      expect(L.board.tileBounds.y).toBeGreaterThanOrEqual(L.table.y - 1e-6);
+    }
+  });
+
+  it('leaves the 32-cell honeycomb topology unchanged (7 columns, 5/4 alternation) at every format', () => {
+    const COLUMN_ROW_COUNTS = [5, 4, 5, 4, 5, 4, 5];
+    for (const vp of ALL_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      let total = 0;
+      for (let col = 0; col < 7; col++) {
+        for (let row = 0; row < COLUMN_ROW_COUNTS[col]; row++) {
+          const p = cellToPixel(L.board, row, col);
+          expect(Number.isFinite(p.x)).toBe(true);
+          expect(Number.isFinite(p.y)).toBe(true);
+          total++;
+        }
+      }
+      expect(total).toBe(32);
+    }
+  });
+
+  it('keeps every pair of neighboring cells farther apart than 2*hitRadius (no visual/hit overlap) at every format', () => {
+    const grid = new HexGrid();
+    for (const vp of ALL_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      for (const cell of getAllCells()) {
+        const p0 = cellToPixel(L.board, cell.row, cell.col);
+        for (const n of grid.getNeighbors(cell.row, cell.col)) {
+          const p1 = cellToPixel(L.board, n.row, n.col);
+          const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+          expect(dist).toBeGreaterThanOrEqual(2 * L.board.hitRadius - 1e-6);
+        }
       }
     }
-    expect(total).toBe(32);
   });
 });
+

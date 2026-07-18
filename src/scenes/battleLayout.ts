@@ -5,7 +5,8 @@
 // of them. It resolves the policy into a plain BoardGeometryInput and calls
 // computeBoardGeometry — the only runtime edge, battleLayout -> boardGeometry —
 // so boardGeometry imports no runtime symbol back (no cycle).
-import { computeBoardGeometry, type BoardGeometry, type BoardGeometryInput } from './boardGeometry';
+import { computeBoardGeometry, computeResponsiveBoardGeometry, type BoardGeometry, type BoardGeometryInput } from './boardGeometry';
+import { computeAvailableBoardRect, computeBoardFrameBounds } from './boardArea';
 import {
   computeLayoutRegions,
   computePlaceholderLayout,
@@ -113,7 +114,9 @@ export interface BattleLayout {
   background: Rect; // full viewport
   bands: LayoutBands; // proportional to safeRect.height, offset by safeRect.y
   board: BoardGeometry;
-  table: Rect;
+  table: Rect; // == lowerBand: {x:0, y:table.y, width:viewport.width, height:viewport.height-table.y}
+  availableBoardRect: Rect; // lowerBand inset by the responsive margin (see boardArea.ts)
+  boardFrame: Rect; // tileBounds + a modest padding, clamped inside lowerBand
   boss: Rect; // monster placeholder footprint
   heroes: Rect[];
   bossHud: BossHudLayout;
@@ -376,7 +379,11 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   const heroBottomGlobal = provisionalHero.y + provisionalHero.height + vOff;
   // Board geometry works entirely in GLOBAL space (global column + global table
   // span), so board.tileBounds/origin are already global.
-  const board = computeBoardGeometry(
+  // RENAMED (Lot 2): this is now `legacyBoard` — kept alive solely to derive
+  // combatScale/minBoardWidthBand below so the boss/hero footprint and the
+  // hero-centering band stay byte-identical to before the refactor. It is
+  // NEVER exposed as the public `board` anymore (see availableBoardRect below).
+  const legacyBoard = computeBoardGeometry(
     resolveBoardGeometryInput(gameplayColumn, tableSpanGlobal, heroBottomGlobal, policy),
   );
 
@@ -385,7 +392,7 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   // baseline dominates (neutral at 480, where the padding requirement is already
   // satisfied); on narrow viewports the padding requirement dominates but is capped
   // at the full column width. Independent of the `table` composition rect below.
-  const minBoardWidthBand = board.tileBounds.width + 2 * policy.minimumTablePadding;
+  const minBoardWidthBand = legacyBoard.tileBounds.width + 2 * policy.minimumTablePadding;
   const paddedFraction =
     gameplayColumn.width > 0 ? minBoardWidthBand / gameplayColumn.width : policy.tableWidthFraction;
   const tableWidthFraction = Math.min(1, Math.max(policy.tableWidthFraction, paddedFraction));
@@ -407,7 +414,7 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   // viewports, only ever growing on larger ones. board.rowHeight / 48
   // recovers the scale (48 = boardGeometry.ts's unscaled ROW_HEIGHT, the same
   // recovery already used in tests, e.g. battleLayout.test.ts).
-  const combatScale = Math.min(policy.maxBoardScale, Math.max(1, board.rowHeight / 48));
+  const combatScale = Math.min(policy.maxBoardScale, Math.max(1, legacyBoard.rowHeight / 48));
   const placeholders = computePlaceholderLayout(regionsLocal, combatScale, tableY);
   const boss = liftRect(placeholders.monster);
   const heroes = placeholders.heroes.map(liftRect);
@@ -428,6 +435,14 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     },
   };
 
+  // The REAL rendered/hit-tested board (Lot 2): fit to the puzzle's own
+  // available space inside the lower band (== `table`), completely
+  // independent of gameplayColumn/legacyBoard. See
+  // docs/superpowers/specs/2026-07-18-lot-02-board-responsive-refactor-design.md.
+  const availableBoardRect = computeAvailableBoardRect(table, insets);
+  const board = computeResponsiveBoardGeometry(availableBoardRect, policy.targetMinHitRadius);
+  const boardFrame = computeBoardFrameBounds(board.tileBounds, table);
+
   return {
     input,
     safeRect,
@@ -436,6 +451,8 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     bands,
     board,
     table,
+    availableBoardRect,
+    boardFrame,
     boss,
     heroes,
     bossHud,
