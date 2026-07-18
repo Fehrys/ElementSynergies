@@ -61,7 +61,7 @@ last, so they'd sit visually on top of everything if their regions ever overlapp
   width card containers" the blueprint's UI Integration section says to avoid.
 - **Solid flat background** (`backgroundColor: '#1b1b2f'` in `main.ts`) — no background,
   environment, or atmosphere layers exist at all, so there is zero depth even though
-  `VISUAL_COMPSITION.md`'s whole thesis is layered depth.
+  `VISUAL_COMPOSITION.md`'s whole thesis is layered depth.
 - **Disjoint horizontal bands** — HP (y 20–66), lineup (y ~100–454), board (y ~464–700)
   never overlap. The blueprint explicitly calls for regions that "intentionally overlap
   slightly to avoid a stacked mobile-app layout"; today's layout is the opposite by

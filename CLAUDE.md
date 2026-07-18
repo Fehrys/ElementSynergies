@@ -71,6 +71,6 @@ Creative documents describe intent. Do not silently alter core gameplay rules to
 
 For BattleScene art, layout, rendering, or presentation work, also read:
 
-- `design/ART_TARGET.md`
+- `design/references/ART_TARGET.md`
 
 Treat the reference image as a qualitative art target, not as an exact layout specification.

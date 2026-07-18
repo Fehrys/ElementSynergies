@@ -19,14 +19,32 @@ import type { BattleLayout, ViewportInput } from './battleLayout';
 import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
 import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
-import { parseArtReviewMode, parseArtGuides, computeCoverFit } from './combatBackgroundReview';
+import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } from './combatBackgroundReview';
 import type { ArtReviewMode } from './combatBackgroundReview';
+import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
+import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
+import { BATTLE_ENVIRONMENT_ASSETS } from '../assets/battleEnvironmentAssets';
 import combatBackgroundTargetUrl from '../../design/references/combat-background-target.png?url';
 
 // Temporary art-review-only asset (see
 // docs/superpowers/specs/2026-07-14-combat-background-art-review-design.md).
 // Never loaded/used unless ?artReview=combatBackground is present.
 const ART_REVIEW_BACKGROUND_KEY = 'combat-background-target';
+
+// Diagnostic colors for the &assetSlots=1 lot-01 slot overlay — one distinct
+// color per environment role (presentation only; geometry comes exclusively
+// from battleEnvironmentLayout).
+const ASSET_SLOT_COLORS: Record<BattleEnvironmentRole, number> = {
+  battleBackgroundUpper: 0x4d79ff,
+  battleBackgroundLower: 0xd8a03c,
+};
+
+// Where each slot's small technical label sits inside its rect, so labels of
+// adjacent/nested slots never stack on the same corner.
+const ASSET_SLOT_LABEL_ANCHORS: Record<BattleEnvironmentRole, { x: number; y: number }> = {
+  battleBackgroundUpper: { x: 0, y: 0 },
+  battleBackgroundLower: { x: 0, y: 0 },
+};
 
 const COLOR_HEX: Record<ElementColor, number> = {
   red: 0xe74c3c,
@@ -86,9 +104,11 @@ export class BattleScene extends Phaser.Scene {
   // stays empty and unused whenever artReviewMode === 'none'.
   private artReviewBackgroundContainer!: Phaser.GameObjects.Container;
   private artGuidesContainer!: Phaser.GameObjects.Container;
+  private assetSlotsContainer!: Phaser.GameObjects.Container;
   private artReviewBackgroundSprite?: Phaser.GameObjects.Image;
   private artReviewMode: ArtReviewMode = 'none';
   private artGuidesEnabled = false;
+  private assetSlotsEnabled = false;
   private hpText!: Phaser.GameObjects.Text;
   private hpBar!: Phaser.GameObjects.Graphics;
   private traceGraphics!: Phaser.GameObjects.Graphics;
@@ -130,6 +150,7 @@ export class BattleScene extends Phaser.Scene {
   init(): void {
     this.artReviewMode = parseArtReviewMode(window.location.search);
     this.artGuidesEnabled = parseArtGuides(window.location.search);
+    this.assetSlotsEnabled = parseAssetSlots(window.location.search);
   }
 
   // Queues the art-review reference image only when the mode is active, so
@@ -195,6 +216,7 @@ export class BattleScene extends Phaser.Scene {
           transientUi: this.transientUiContainer.length,
           artReviewBackground: this.artReviewBackgroundContainer.length,
           artGuides: this.artGuidesContainer.length,
+          assetSlots: this.assetSlotsContainer.length,
         }),
         getSelectionLength: () => this.path.length,
         getTracePointCount: () => this.tracePointCount,
@@ -223,6 +245,7 @@ export class BattleScene extends Phaser.Scene {
     // inert containers that only ever receive content when the mode is active.
     this.artReviewBackgroundContainer = this.add.container(0, 0).setDepth(DEPTH.BACKGROUND);
     this.artGuidesContainer = this.add.container(0, 0).setDepth(DEPTH.DEBUG);
+    this.assetSlotsContainer = this.add.container(0, 0).setDepth(DEPTH.DEBUG);
 
     this.traceGraphics = this.add.graphics();
     this.puzzleFeedbackContainer.add(this.traceGraphics);
@@ -275,6 +298,14 @@ export class BattleScene extends Phaser.Scene {
       document.body.setAttribute('data-art-review', this.artReviewMode);
       document.body.setAttribute('data-art-guides', String(this.artGuidesEnabled));
       document.body.setAttribute('data-art-review-ready', 'true');
+      // Lot-01 slot overlay surface: `ready` is only set here, AFTER the first
+      // applyLayout() above already ran drawAssetSlots() over a fully computed
+      // layout — so waiting on it guarantees the two slots exist and
+      // data-asset-slots-layout holds the first complete computation.
+      if (this.assetSlotsEnabled) {
+        document.body.setAttribute('data-asset-slots', 'true');
+        document.body.setAttribute('data-asset-slots-ready', 'true');
+      }
     }
   }
 
@@ -291,6 +322,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawHp();
     this.drawCharacterPlaceholders();
     this.drawArtGuides(); // no-op unless artReviewMode === 'combatBackground' && artGuidesEnabled
+    this.drawAssetSlots(); // no-op unless artReviewMode === 'combatBackground' && assetSlotsEnabled
     this.drawTraceLine(); // keeps an in-progress trace consistent if not cancelled
     if (isDefeated(this.monster)) this.checkVictory();
   }
@@ -623,6 +655,44 @@ export class BattleScene extends Phaser.Scene {
     }
 
     this.artGuidesContainer.add(g);
+  }
+
+  // Lot-01 production overlay (&assetSlots=1, only inside the combatBackground
+  // review mode). Draws the two FUTURE environment backgrounds' placements as
+  // semi-transparent role-colored rects + one small technical label each
+  // (diagnostic only — no UI panel). Geometry comes exclusively from
+  // computeBattleEnvironmentLayout(activeLayout) — no hand-copied coordinate —
+  // so every reflow recomputes the slots for free through applyLayout(), and
+  // the removeAll(true) keeps the redraw idempotent (no accumulation).
+  private drawAssetSlots(): void {
+    this.assetSlotsContainer.removeAll(true);
+    if (this.artReviewMode !== 'combatBackground' || !this.assetSlotsEnabled) return;
+    const env = computeBattleEnvironmentLayout(this.activeLayout);
+    const g = this.add.graphics();
+    this.assetSlotsContainer.add(g);
+    for (const def of BATTLE_ENVIRONMENT_ASSETS) {
+      const rect = placementToRect(env[def.role]);
+      const color = ASSET_SLOT_COLORS[def.role];
+      g.fillStyle(color, 0.18);
+      g.fillRect(rect.x, rect.y, rect.width, rect.height);
+      g.lineStyle(1, color, 0.9);
+      g.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      const anchor = ASSET_SLOT_LABEL_ANCHORS[def.role];
+      const label = this.add
+        .text(rect.x + 4 + anchor.x * (rect.width - 8), rect.y + 4 + anchor.y * (rect.height - 8), def.key, {
+          fontSize: '10px',
+          color: `#${color.toString(16).padStart(6, '0')}`,
+          backgroundColor: 'rgba(0,0,0,0.6)',
+        })
+        .setOrigin(anchor.x, anchor.y);
+      this.assetSlotsContainer.add(label);
+    }
+    // Serialized two-slot layout, observable without canvas reads (and
+    // without ?debug=1): e2e cross-checks it against the same pure module in
+    // Node. No slot policy is serialized anymore — computeBattleEnvironmentLayout
+    // no longer takes one (see battleEnvironmentLayout.ts).
+    document.body.setAttribute('data-asset-slots-layout', JSON.stringify(env));
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM
