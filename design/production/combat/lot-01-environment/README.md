@@ -41,6 +41,15 @@ backgrounds. Loading these assets into Phaser (`this.load.image()`) remains
 out of scope for Lot 1 — visual integration into the normal combat scene is a
 separate, later lot.
 
+## Lot 2 update (2026-07-18)
+
+`battleBackgroundLower`'s sprite is now hidden (`setVisible(false)`) in
+normal gameplay — the puzzle board's size no longer aligns to this
+artwork; see
+`docs/superpowers/specs/2026-07-18-lot-02-board-responsive-refactor-design.md`.
+The file, manifest entry, and loading are all unchanged and it remains
+fully available to both `?artReview=combatBackground` review modes.
+
 ## Documents
 
 - `ASSET_CONTRACT.md` — the binding production contract for each of the two
