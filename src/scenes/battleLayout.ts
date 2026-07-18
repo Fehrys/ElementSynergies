@@ -64,12 +64,19 @@ export interface BattleLayoutPolicy {
   // grid is nudged UP after boardVerticalBias. Fine-tuning only — never affects
   // scale selection/tile size.
   boardVerticalOffset: number; // 0
-  // Game units of clearance kept between bands.hero.bottom (where heroes are
-  // grounded — unrelated, untouched concept) and the top of the `table`
-  // composition rect below. Without this the table's top edge and the heroes'
-  // feet land on the exact same line, which reads as the table acting as a hard
-  // floor for hero placement instead of two independent composition elements.
-  tableTopGap: number; // 35
+  // Fraction of safeRect.height where the combat/prep visual separation sits
+  // (the `table` rect's top edge — also the exact seam between
+  // battleBackgroundUpper and battleBackgroundLower). ABSOLUTE RULE (product
+  // decision, 2026-07-19): this ratio must be IDENTICAL at every viewport
+  // size — safe-area insets aside — so the upper/lower background split never
+  // looks proportionally different between a phone and a tablet. It is a pure
+  // fraction of safeRect.height, entirely independent of bands.hero.bottom
+  // (which shifts under vertical-degradation compression on short viewports)
+  // and of any fixed-pixel gap — either of those would make the ratio drift
+  // with viewport size, which is exactly the bug this constant fixes.
+  // 0.5486111... = 395/720, chosen to keep the 480x720 composition baseline
+  // pixel-identical to its pre-existing table.y.
+  tableYFraction: number; // 0.5486111111111111
   bands: {
     // vertical composition ranges (percent of safeRect height) — single source
     topHud: [number, number]; // [4, 12]
@@ -132,7 +139,7 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   boardVerticalBias: 0.62,
   columnSpacingReduction: 3,
   boardVerticalOffset: 0,
-  tableTopGap: 35,
+  tableYFraction: 395 / 720,
   bands: {
     // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
     // to align the composition with design/references/combat-background-target.png —
@@ -371,19 +378,20 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     safeBottom: liftBand(regionsLocal.safeBottom),
   };
 
-  // `table` is the lower composition band: full viewport width, starting
-  // policy.tableTopGap below the combat/prep separation line (bands.hero.bottom,
-  // already global) and running to the bottom of the viewport. The gap keeps the
-  // table's top edge from sitting exactly on the heroes' grounding line — heroes
-  // and the table are two independent composition elements, not one surface
-  // acting as the other's floor. It no longer tightly encloses the tile bbox —
-  // the board (sized/positioned above) always fits comfortably inside it. See
+  // `table` is the lower composition band: full viewport width, starting at a
+  // FIXED fraction of safeRect.height (policy.tableYFraction) and running to
+  // the bottom of the viewport. This is deliberately NOT derived from
+  // bands.hero.bottom (which shifts under vertical-degradation compression on
+  // short viewports) or from any fixed-pixel gap — either would make the
+  // upper/lower background split ratio drift with viewport size. See
+  // policy.tableYFraction's doc comment (absolute rule, 2026-07-19) and
   // docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
+  const tableY = safeRect.y + policy.tableYFraction * safeRect.height;
   const table: Rect = {
     x: 0,
-    y: bands.hero.bottom + policy.tableTopGap,
+    y: tableY,
     width,
-    height: height - bands.hero.bottom - policy.tableTopGap,
+    height: height - tableY,
   };
 
   const placeholders = computePlaceholderLayout(regionsLocal);

@@ -208,8 +208,11 @@ describe('computeBattleLayout — synthetic safe-area insets (audit cases)', () 
         expect(b.safeBottom.bottom).toBeCloseTo(L.safeRect.y + L.safeRect.height, 9);
       });
 
-      it('table starts tableTopGap below the combat/prep separation line and reaches the viewport bottom', () => {
-        expect(L.table.y).toBeCloseTo(L.bands.hero.bottom + DEFAULT_BATTLE_LAYOUT_POLICY.tableTopGap, 9);
+      it('table starts at the fixed tableYFraction of safeRect.height and reaches the viewport bottom', () => {
+        expect(L.table.y).toBeCloseTo(
+          L.safeRect.y + DEFAULT_BATTLE_LAYOUT_POLICY.tableYFraction * L.safeRect.height,
+          9,
+        );
         expect(L.table.y + L.table.height).toBeCloseTo(L.background.height, 9);
       });
 
@@ -381,7 +384,7 @@ const PRE_REALIGNMENT_POLICY = {
   boardVerticalBias: 0.5,
   columnSpacingReduction: 0,
   boardVerticalOffset: 0,
-  tableTopGap: 0,
+  tableYFraction: 0.46, // pre-2026-07-14: table.y === bands.hero.bottom exactly (old hero band bottom, no gap)
   bands: { topHud: [0, 8], monster: [8, 34], hero: [34, 46], board: [46, 93], safeBottom: [93, 100] },
 } as typeof P;
 
@@ -431,10 +434,10 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     }
   });
 
-  it('redefines table as the full-width lower composition band starting tableTopGap below the combat/prep separation', () => {
+  it('redefines table as the full-width lower composition band starting at the fixed tableYFraction', () => {
     expect(after.table.x).toBe(0);
     expect(after.table.width).toBe(after.background.width);
-    expect(after.table.y).toBeCloseTo(after.bands.hero.bottom + P.tableTopGap, 9);
+    expect(after.table.y).toBeCloseTo(after.safeRect.y + P.tableYFraction * after.safeRect.height, 9);
     expect(after.table.y + after.table.height).toBeCloseTo(after.background.height, 9);
   });
 
@@ -483,7 +486,7 @@ describe('2026-07-14 — realignment to the combat background art target', () =>
     ]) {
       const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
       expect(L.table.width).toBe(L.background.width);
-      expect(L.table.y).toBeCloseTo(L.bands.hero.bottom + P.tableTopGap, 9);
+      expect(L.table.y).toBeCloseTo(L.safeRect.y + P.tableYFraction * L.safeRect.height, 9);
       expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - 0.5);
       expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(
         L.gameplayColumn.x + L.gameplayColumn.width + 0.5,
