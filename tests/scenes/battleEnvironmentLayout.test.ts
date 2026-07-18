@@ -163,26 +163,26 @@ describe('manifest consistency', () => {
     }
   });
 
-  it('marks both backgrounds as pending (neither final illustration exists yet)', () => {
-    expect(BATTLE_ENVIRONMENT_ASSETS.every((a) => a.status === 'pending')).toBe(true);
+  it('marks both backgrounds as available (both final illustrations are deposited)', () => {
+    expect(BATTLE_ENVIRONMENT_ASSETS.every((a) => a.status === 'available')).toBe(true);
   });
 
-  it('declares strictly positive target dimensions for both pending assets', () => {
+  it('declares strictly positive production dimensions for both available assets', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
-      expect(a.status).toBe('pending');
-      if (a.status !== 'pending') continue; // narrows for TS
-      expect(a.targetSize.width).toBeGreaterThan(0);
-      expect(a.targetSize.height).toBeGreaterThan(0);
-      expect(a.targetSize.aspectRatio).toBeGreaterThan(0);
-      expect(Number.isInteger(a.targetSize.width)).toBe(true);
-      expect(Number.isInteger(a.targetSize.height)).toBe(true);
+      expect(a.status).toBe('available');
+      if (a.status !== 'available') continue; // narrows for TS
+      expect(a.productionSize.width).toBeGreaterThan(0);
+      expect(a.productionSize.height).toBeGreaterThan(0);
+      expect(a.productionSize.aspectRatio).toBeGreaterThan(0);
+      expect(Number.isInteger(a.productionSize.width)).toBe(true);
+      expect(Number.isInteger(a.productionSize.height)).toBe(true);
     }
   });
 
-  it('keeps each declared aspect ratio consistent with its target dimensions', () => {
+  it('keeps each declared aspect ratio consistent with its production dimensions', () => {
     for (const a of BATTLE_ENVIRONMENT_ASSETS) {
-      if (a.status !== 'pending') continue;
-      const { width, height, aspectRatio } = a.targetSize;
+      if (a.status !== 'available') continue;
+      const { width, height, aspectRatio } = a.productionSize;
       expect(Math.abs(aspectRatio - width / height)).toBeLessThan(0.005);
     }
   });

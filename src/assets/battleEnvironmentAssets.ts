@@ -1,9 +1,9 @@
 // Central manifest of the two Lot 1 combat-environment background assets
 // (mirrored 1:1 by design/production/combat/lot-01-environment/ASSET_CONTRACT.md).
-// Both are still `status: 'pending'` — see ASSET_CONTRACT.md for what "final"
-// means for each — and MUST NOT be fed to this.load.image() until a human
-// flips their status to 'available'. Never scatter these paths into
-// BattleScene.ts.
+// Both are `status: 'available'` — the final illustrations are deposited at
+// `path` and validated by tests/assets/environmentAssetFiles.test.ts — but
+// MUST STILL NOT be fed to this.load.image() from BattleScene.ts: loading
+// them into the normal Phaser scene is a separate, later integration lot.
 //
 // Placement geometry deliberately does NOT live here: it is computed at
 // runtime from the validated BattleLayout by scenes/battleEnvironmentLayout.ts
@@ -67,12 +67,10 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0.5, y: 0 },
     responsivePolicy: 'viewportCover',
     depth: DEPTH.BACKGROUND,
-    status: 'pending',
-    // Recommended target — a draft file already sits at `path` from the
-    // superseded five-asset contract, but it does not yet bake in the
-    // integrated left/right decor this contract requires, so it is not
-    // promoted to 'available'. See ASSET_CONTRACT.md Asset 1.
-    targetSize: { width: 1536, height: 1024, aspectRatio: 1.5 },
+    status: 'available',
+    // Real, measured dimensions (VP8L header) — see ASSET_CONTRACT.md Asset 1
+    // and tests/assets/environmentAssetFiles.test.ts.
+    productionSize: { width: 1536, height: 1024, aspectRatio: 1.5 },
   },
   {
     key: 'battle-env-bg-lower',
@@ -83,9 +81,10 @@ export const BATTLE_ENVIRONMENT_ASSETS: readonly BattleEnvironmentAssetDefinitio
     anchor: { x: 0.5, y: 0 },
     responsivePolicy: 'viewportCover',
     depth: DEPTH.TABLE,
-    status: 'pending',
-    // Recommended target — not yet produced. See ASSET_CONTRACT.md Asset 2.
-    targetSize: { width: 1536, height: 1280, aspectRatio: 1.2 },
+    status: 'available',
+    // Real, measured dimensions (VP8L header) — see ASSET_CONTRACT.md Asset 2
+    // and tests/assets/environmentAssetFiles.test.ts.
+    productionSize: { width: 1536, height: 1280, aspectRatio: 1.2 },
   },
 ];
 

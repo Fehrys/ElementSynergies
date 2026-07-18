@@ -6,19 +6,28 @@ import type { AvailableBattleEnvironmentAsset } from '../../src/assets/battleEnv
 import { readWebpHeader } from './webpHeader';
 
 // Validates the two Lot 1 environment background assets against the
-// manifest: existence at the declared path, real WebP signature, and
-// dimensions matching `productionSize` — but ONLY for entries whose `status`
-// is 'available'. A 'pending' asset's draft file (if one happens to sit at
-// its path, e.g. the current battle_bg_upper.webp) is never treated as a
-// final, validated asset — only a human flipping the manifest's `status` to
-// 'available' (with the file's real measured productionSize) does that. See
+// manifest: existence at the declared path, a real WebP container, decoded
+// dimensions matching `productionSize`, and a header-level opacity check —
+// but ONLY for entries whose `status` is 'available' (both are, today). A
+// hypothetical future 'pending' entry's draft file (if one happened to sit
+// at its path) would never be treated as final by this suite — only a human
+// flipping the manifest's `status` to 'available' (with the file's real
+// measured productionSize) does that. See
 // design/production/combat/lot-01-environment/README.md.
 const PUBLIC_ROOT = path.resolve(__dirname, '../../public');
 
 const RIFF_SIGNATURE = Buffer.from('RIFF', 'ascii');
+const WEBP_SIGNATURE = Buffer.from('WEBP', 'ascii');
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function isWebp(buf: Buffer): boolean {
-  return buf.subarray(0, 4).equals(RIFF_SIGNATURE);
+function detectContainer(buf: Buffer): 'webp' | 'png' | 'unknown' {
+  if (buf.length >= 12 && buf.subarray(0, 4).equals(RIFF_SIGNATURE) && buf.subarray(8, 12).equals(WEBP_SIGNATURE)) {
+    return 'webp';
+  }
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return 'png';
+  }
+  return 'unknown';
 }
 
 function isAvailable(a: (typeof BATTLE_ENVIRONMENT_ASSETS)[number]): a is AvailableBattleEnvironmentAsset {
@@ -32,10 +41,19 @@ describe('environment asset files', () => {
     );
   });
 
-  it('currently has zero available assets — both backgrounds are still pending', () => {
-    // This assertion documents today's true state; it is expected to change
-    // (and must be updated) the day a human marks a background 'available'.
-    expect(BATTLE_ENVIRONMENT_ASSETS.filter(isAvailable)).toHaveLength(0);
+  it('has exactly two available assets — both backgrounds are finalized', () => {
+    expect(BATTLE_ENVIRONMENT_ASSETS.filter(isAvailable).map((a) => a.role).sort()).toEqual(
+      ['battleBackgroundLower', 'battleBackgroundUpper'].sort(),
+    );
+    // Guard against a regression that silently leaves a final asset
+    // un-promoted: this suite is only ever a real check for 'available'
+    // entries, so a background stuck at 'pending' would pass validation by
+    // never being looked at — this assertion is what actually catches that.
+    for (const a of BATTLE_ENVIRONMENT_ASSETS) {
+      expect(a.status, `${a.role} must be 'available' — this Lot's contract has no pending asset left.`).toBe(
+        'available',
+      );
+    }
   });
 
   for (const asset of BATTLE_ENVIRONMENT_ASSETS.filter(isAvailable)) {
@@ -43,15 +61,45 @@ describe('environment asset files', () => {
       const filePath = path.join(PUBLIC_ROOT, asset.path.replace(/^\//, ''));
 
       it('exists on disk at the manifest path', () => {
-        expect(fs.existsSync(filePath)).toBe(true);
+        expect(fs.existsSync(filePath), `Missing file: ${filePath}`).toBe(true);
       });
 
-      it('is a real WebP file with the declared production dimensions', () => {
+      it('is a real WebP container matching the declared format', () => {
         const buf = fs.readFileSync(filePath);
-        expect(isWebp(buf), `${asset.path} must be a real WebP file.`).toBe(true);
+        const container = detectContainer(buf);
+        expect(
+          container,
+          `${asset.path} must be a real ${asset.format} file, but its magic bytes decode as "${container}".`,
+        ).toBe('webp');
+        expect(asset.format).toBe('webp');
+      });
+
+      it('decodes a valid, non-truncated WebP header with the declared production dimensions', () => {
+        const buf = fs.readFileSync(filePath);
         const { width, height } = readWebpHeader(buf);
-        expect(width).toBe(asset.productionSize.width);
-        expect(height).toBe(asset.productionSize.height);
+        expect(width, `${asset.path}: decoded width ${width} !== manifest productionSize.width ${asset.productionSize.width}`).toBe(
+          asset.productionSize.width,
+        );
+        expect(
+          height,
+          `${asset.path}: decoded height ${height} !== manifest productionSize.height ${asset.productionSize.height}`,
+        ).toBe(asset.productionSize.height);
+      });
+
+      it('never requires alpha, and its header does not flag an alpha channel', () => {
+        expect(asset.alphaRequired).toBe(false);
+        const buf = fs.readFileSync(filePath);
+        const { hasAlpha } = readWebpHeader(buf);
+        // Header-level signal only (see webpHeader.ts's WebpHeaderInfo doc):
+        // a VP8L stream's alpha_is_used bit is a reliable "no alpha channel
+        // was encoded" guarantee when false, which is what this asserts. It
+        // is not a full per-pixel decode — confirming every pixel is opaque
+        // beyond this header bit would require decoding the whole image,
+        // which this minimal reader deliberately does not do.
+        expect(
+          hasAlpha,
+          `${asset.path} must be opaque (no alpha channel) per ASSET_CONTRACT.md, but its WebP header flags one.`,
+        ).toBe(false);
       });
     });
   }
