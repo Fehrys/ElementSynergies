@@ -82,7 +82,21 @@ const MONSTER_HEIGHT = 140; // ~2x hero height — blueprint's "1.5 to 2x taller
 const HERO_WIDTH = 50;
 const HERO_HEIGHT = 70;
 const HERO_COUNT = 4;
-const HERO_TABLE_OVERLAP = 8; // px each hero's lower edge sinks behind the table rear edge
+// px kept between the boss footprint's bottom edge and the hero row's top
+// edge (2026-07-18 Lot 2 review fix). Heroes were previously grounded on the
+// hero/table composition bands, which grow proportionally taller than the
+// FIXED-pixel boss/hero placeholder shapes as viewport height increases — the
+// boss stayed roughly centered in an increasingly tall monster band while the
+// heroes stayed pinned to the (also growing) bottom of the hero band, so the
+// visual gap between them widened from ~12px at 360x640 to over 100px at
+// 768x1024. Anchoring the hero row directly to the boss's own rect keeps that
+// gap constant across every viewport instead.
+const BOSS_HERO_GAP = 12;
+// Legacy grounding constant, now used only as a safety ceiling (see below) —
+// the fixed-pixel boss+gap+hero footprint (140 + 12 + 70 = 222px) can exceed
+// the ENTIRE available height on an extreme short/landscape viewport, where
+// the compressed composition bands would otherwise leave more headroom.
+const HERO_TABLE_OVERLAP = 8;
 
 export function computePlaceholderLayout(regions: LayoutRegions): PlaceholderLayout {
   const monsterCenterX = (regions.boardWidthBand.left + regions.boardWidthBand.right) / 2;
@@ -94,13 +108,18 @@ export function computePlaceholderLayout(regions: LayoutRegions): PlaceholderLay
     height: MONSTER_HEIGHT,
   };
 
-  // Ground the brigade: each hero's lower edge sinks HERO_TABLE_OVERLAP px past
-  // the table's rear edge. Because the table is drawn at a higher depth, its lip
-  // masks those bottom pixels, so the heroes read as standing behind the
-  // preparation surface rather than floating above it. Placement is derived
-  // from the table span, never a hard-coded y inside the scene.
-  const heroBottom = computeTableSpan(regions).top + HERO_TABLE_OVERLAP;
-  const heroY = heroBottom - HERO_HEIGHT;
+  // Heroes are anchored to the boss's own footprint (not to the hero/table
+  // composition bands) so the boss/hero visual relationship stays constant
+  // across viewports — see BOSS_HERO_GAP above. But never LOWER (larger y)
+  // than the legacy band-grounded position: on an extreme short/landscape
+  // viewport the compressed hero/board bands still guarantee enough room for
+  // the board below the heroes, while the fixed-pixel boss anchor alone does
+  // not — so the smaller (higher-up) of the two always wins. At every
+  // reference format (360x640/480x720/768x1024) the boss anchor is already
+  // the smaller value, so this ceiling is a no-op there.
+  const heroYFromBoss = monster.y + monster.height + BOSS_HERO_GAP;
+  const heroYFromBands = computeTableSpan(regions).top + HERO_TABLE_OVERLAP - HERO_HEIGHT;
+  const heroY = Math.min(heroYFromBoss, heroYFromBands);
   const { left, width } = regions.boardWidthBand;
   const heroes: Rect[] = [];
   for (let i = 0; i < HERO_COUNT; i++) {

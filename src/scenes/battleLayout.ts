@@ -56,14 +56,14 @@ export interface BattleLayoutPolicy {
   // Where the board sits inside its vertical tableSpan: 0 = span's top, 0.5 = centered
   // (pre-2026-07-14 behavior), 1 = span's bottom. Applied strictly after scale
   // selection — see boardGeometry.computeBoardGeometry.
-  boardVerticalBias: number; // 0.58 — nudges the board down inside its span
+  boardVerticalBias: number; // 0.62 — nudges the board down inside its span
   // Game units (480-reference frame, scaled like everything else) shaved off the
   // column pitch (colWidth) after scale selection — tile size/hitRadius untouched.
   columnSpacingReduction: number; // 3
   // Game units (480-reference frame, scaled like columnSpacingReduction) the tile
-  // grid is nudged UP after boardVerticalBias, so it sits correctly inside the
-  // cutting board art. Fine-tuning only — never affects scale selection/tile size.
-  boardVerticalOffset: number; // 14
+  // grid is nudged UP after boardVerticalBias. Fine-tuning only — never affects
+  // scale selection/tile size.
+  boardVerticalOffset: number; // 0
   // Game units of clearance kept between bands.hero.bottom (where heroes are
   // grounded — unrelated, untouched concept) and the top of the `table`
   // composition rect below. Without this the table's top edge and the heroes'
@@ -122,9 +122,16 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   targetMinVisualRadius: 16,
   targetMinHitRadius: 20,
   maxBoardScale: 1.4,
-  boardVerticalBias: 0.58,
+  // Recalibrated 2026-07-18 (Lot 2 review fix) against the real
+  // battleBackgroundLower art integrated in Lot 2: the previous 0.58/14 pair
+  // (tuned for the pre-Lot-1 placeholder) left the tile grid sitting close to
+  // the top of the cutting board across all three reference formats, with a
+  // visibly larger margin below than above. 0.62/0 lowers the grid so the
+  // margins read as roughly balanced at 360x640/480x720/768x1024 — see
+  // docs/superpowers/specs/2026-07-18-battle-environment-runtime-integration-design.md.
+  boardVerticalBias: 0.62,
   columnSpacingReduction: 3,
-  boardVerticalOffset: 14,
+  boardVerticalOffset: 0,
   tableTopGap: 35,
   bands: {
     // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
@@ -328,10 +335,17 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   );
   const tableSpanLocal = computeTableSpan(provisionalRegions);
   const tableSpanGlobal = { top: tableSpanLocal.top + vOff, bottom: tableSpanLocal.bottom + vOff };
-  // provisionalRegions.hero is already final (vertical bands don't depend on the
-  // table WIDTH fraction resolved below), so this is safe to use as the real
-  // heroBottom the board's upward nudge must never rise above.
-  const heroBottomGlobal = provisionalRegions.hero.bottom + vOff;
+  // The board's upward nudge must never rise above the heroes' ACTUAL feet
+  // (2026-07-18 Lot 2 review fix): heroes are now boss-anchored (see
+  // compositionLayout.ts's BOSS_HERO_GAP), not grounded on the hero band's
+  // boundary, so that abstract band boundary can no longer stand in for their
+  // real position — on a heavily compressed viewport the two can diverge.
+  // Safe to compute from provisionalRegions here (not the board-width-refined
+  // regionsLocal below): hero verticals depend only on the monster/hero bands,
+  // never on tableWidthFraction — see computeLayoutRegions. All four heroes
+  // share the same y, so [0] is the real grounding line.
+  const provisionalHero = computePlaceholderLayout(provisionalRegions).heroes[0];
+  const heroBottomGlobal = provisionalHero.y + provisionalHero.height + vOff;
   // Board geometry works entirely in GLOBAL space (global column + global table
   // span), so board.tileBounds/origin are already global.
   const board = computeBoardGeometry(

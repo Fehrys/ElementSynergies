@@ -19,7 +19,15 @@ import type { BattleLayout, ViewportInput } from './battleLayout';
 import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
 import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
-import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } from './combatBackgroundReview';
+import {
+  parseArtReviewMode,
+  parseArtGuides,
+  parseAssetSlots,
+  computeCoverFit,
+  computeOverscaledCoverFit,
+  LOWER_BACKGROUND_REFERENCE_SCALE,
+  LOWER_BACKGROUND_MAX_OVERSCALE,
+} from './combatBackgroundReview';
 import type { ArtReviewMode } from './combatBackgroundReview';
 import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
 import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
@@ -75,6 +83,7 @@ export interface DebugApi {
   getSelectionLength(): number; // selected-cell count (0 after a mid-drag cancel)
   getTracePointCount(): number; // drawn trace points (0 after a clear)
   hasTexture(key: string): boolean; // Phaser texture-manager check (e.g. a background actually loaded)
+  getContainerDepths(): Record<string, number>; // per-container Phaser depth — the z-order regression probe
 }
 
 declare global {
@@ -240,6 +249,14 @@ export class BattleScene extends Phaser.Scene {
         getSelectionLength: () => this.path.length,
         getTracePointCount: () => this.tracePointCount,
         hasTexture: (key) => this.textures.exists(key),
+        getContainerDepths: () => ({
+          background: this.backgroundContainer.depth,
+          environment: this.environmentContainer.depth,
+          monster: this.monsterContainer.depth,
+          hero: this.heroContainer.depth,
+          table: this.tableContainer.depth,
+          board: this.boardLayer.depth,
+        }),
         getArtReviewInfo: () =>
           this.artReviewMode === 'none' ? null : { mode: this.artReviewMode, guides: this.artGuidesEnabled },
       };
@@ -565,7 +582,20 @@ export class BattleScene extends Phaser.Scene {
       this.environmentBackgrounds[role] = entry;
     }
 
-    const fit = computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
+    // battleBackgroundLower gets an extra geometry-driven overscale on top of
+    // plain cover so its cutting board stays legible on narrow phones (see
+    // LOWER_BACKGROUND_REFERENCE_SCALE); battleBackgroundUpper keeps plain cover.
+    const fit =
+      role === 'battleBackgroundLower'
+        ? computeOverscaledCoverFit(
+            def.productionSize.width,
+            def.productionSize.height,
+            rect.width,
+            rect.height,
+            LOWER_BACKGROUND_REFERENCE_SCALE,
+            LOWER_BACKGROUND_MAX_OVERSCALE,
+          )
+        : computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
     entry.sprite.setDisplaySize(fit.displayWidth, fit.displayHeight);
     entry.sprite.setPosition(rect.x + fit.x, rect.y + fit.y);
 
@@ -749,10 +779,12 @@ export class BattleScene extends Phaser.Scene {
 
     // Heroes: one flat capsule per roster entry, evenly spaced across the
     // board width band (bottom-center anchored so future sprites can share
-    // the footprint), each with a small contact shadow. Their lower edge sinks
-    // behind the table's rear edge (grounded by the layout), so the table lip
-    // masks the bottom few pixels. No name labels: the previous ones sat behind
-    // the table and were never visible.
+    // the footprint), each with a small contact shadow. Grounded a fixed gap
+    // below the boss (see compositionLayout.ts's BOSS_HERO_GAP), well above
+    // the table — heroContainer (DEPTH.HERO) also renders above tableContainer
+    // (DEPTH.TABLE) so the lower background can never cover them even if a
+    // future footprint dips into that band. No name labels: the previous ones
+    // sat behind the table and were never visible.
     ROSTER.forEach((character, i) => {
       const h = this.activeLayout.heroes[i];
       const cx = h.x + h.width / 2;
