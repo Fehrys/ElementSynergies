@@ -189,7 +189,10 @@ test('mobile landscape 844x390: no clip, all cells reachable, precise drag, chro
   // hitRadius floored + capped.
   const scale = L.board.rowHeight / 48;
   expect(L.board.visualRadius).toBeCloseTo(22 * scale, 6);
-  expect(L.board.colWidth).toBeCloseTo(56 * scale - P.columnSpacingReduction * scale, 6);
+  // 2026-07-18 Lot 2: the rendered board no longer applies columnSpacingReduction
+  // (a legacy fine-tuning knob for the now-hidden battle_bg_lower.webp alignment) —
+  // colWidth is exactly COL_WIDTH * scale, isotropic with visualRadius/rowHeight.
+  expect(L.board.colWidth).toBeCloseTo(56 * scale, 6);
   expect(L.board.visualRadius).toBeGreaterThan(0);
   expect(L.board.hitRadius).toBeGreaterThan(0);
   expect(L.board.hitRadius).toBeLessThan(L.board.rowHeight / 2);
