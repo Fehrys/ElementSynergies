@@ -1,14 +1,15 @@
 # Lot 1 — Combat Environment Production
 
-This folder drives the production of the **two background assets** that will
+This folder documents the production of the **two background assets** that
 replace the single master reference image
 `design/references/combat-background-target.png` in the combat scene.
 
-> **Five-to-two migration (2026-07-18).** The five-asset contract
-> (`battleBackgroundUpper`, `prepTableBase`, `cuttingBoard`, `leftHearth`,
-> `rightLarder`) is replaced by two full-band paintings: `battleBackgroundUpper`
-> (now also baking in the cooking station and food reserve) and
-> `battleBackgroundLower` (now also baking in the table and cutting board).
+> **History: six assets → five assets → two backgrounds.** The original
+> contract split the scene into six, then five, separately-placed layers
+> (architecture/floor, table, cutting board, two edge prop clusters). On
+> 2026-07-18 that was replaced by two full-band paintings:
+> `battleBackgroundUpper` (baking in the cooking station and food reserve)
+> and `battleBackgroundLower` (baking in the table and cutting board).
 > `ASSET_CONTRACT.md` documents the current, binding two-background contract
 > and its rationale; the linked specs/plans below describe the superseded
 > six- and five-asset versions and are kept for history only.
@@ -20,43 +21,25 @@ Lot 1.
 
 ## Status
 
-**Zero of two backgrounds finalized.** Both `battleBackgroundUpper` and
-`battleBackgroundLower` are `status: 'pending'` in
-`src/assets/battleEnvironmentAssets.ts`. A draft `battle_bg_upper.webp`
-already sits at its final path from the superseded five-asset contract, but
-it does not yet integrate the left/right decor this contract requires, so it
-is not marked `available`. `battle_bg_lower.webp` does not exist yet. See
-`tests/assets/environmentAssetFiles.test.ts` for the automated check that
-only validates `available` assets and never promotes a `pending` draft.
-Loading these assets into Phaser (`this.load.image()`) is still out of scope
-for Lot 1 — a later integration lot wires that up.
+**Lot 1 production contract complete: two backgrounds finalized out of two.**
+Both `battleBackgroundUpper` and `battleBackgroundLower` are
+`status: 'available'` in `src/assets/battleEnvironmentAssets.ts`, with their
+real, measured `productionSize`. The final files are deposited at:
 
-## Superseded intermediate sources
+- `public/assets/battle/environment/background/battle_bg_upper.webp` —
+  1536×1024, real WebP (VP8L), opaque.
+- `public/assets/battle/environment/background/battle_bg_lower.webp` —
+  1536×1280, real WebP (VP8L), opaque.
 
-These files were produced under the earlier six-/five-asset contracts. They
-are **not referenced by the active manifest** and are kept only as possible
-source material for painting the two new backgrounds:
-
-- `public/assets/battle/environment/preparation/battle_prep_table_base.webp`
-- `public/assets/battle/environment/preparation/battle_prep_cutting_board.png`
-- `public/assets/battle/environment/background/battle_bg_upper.webp` (draft —
-  reusable as a starting point for the new `battleBackgroundUpper`, but needs
-  the left/right decor integrated before it can be marked `available`)
-
-`public/assets/battle/environment/props/left/` and
-`public/assets/battle/environment/props/right/` hold only `.gitkeep` — the
-`leftHearth`/`rightLarder` roles they were reserved for no longer exist.
-
-## Deferred cleanup
-
-Do not delete any of the above until both new backgrounds are produced,
-deposited at their final paths, and validated. Once that happens:
-
-- remove the superseded files listed above;
-- remove the now-empty `props/left/`, `props/right/` and `preparation/`
-  folders under `public/assets/battle/environment/`;
-- remove this section and the "Superseded intermediate sources" section
-  above.
+`tests/assets/environmentAssetFiles.test.ts` validates both files: existence,
+real WebP container, decoded dimensions against the manifest, and a
+header-level opacity check. The superseded five-asset intermediate sources
+(`preparation/battle_prep_table_base.webp`, `preparation/battle_prep_cutting_board.png`,
+the `props/left/` and `props/right/` placeholder folders) have been removed
+from the tree — the runtime folder now contains only the two final
+backgrounds. Loading these assets into Phaser (`this.load.image()`) remains
+out of scope for Lot 1 — visual integration into the normal combat scene is a
+separate, later lot.
 
 ## Documents
 
@@ -78,8 +61,9 @@ deposited at their final paths, and validated. Once that happens:
 - `exports/` — candidate exports awaiting validation. Never referenced by the
   game.
 - `review/` — captured review images from the superseded five-asset contract,
-  kept for history. `review/slots/` holds the slot-guide captures; the
-  two-background overlay will need fresh captures once produced.
+  kept for history. `review/slots/` holds the slot-guide captures; fresh
+  captures against the two produced backgrounds are optional follow-up, not
+  a blocker for this Lot's contract.
 - Final validated files ship to `public/assets/battle/environment/…` at the
   exact paths listed in the contract (mirrored by the TypeScript manifest
   `src/assets/battleEnvironmentAssets.ts`).

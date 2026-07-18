@@ -52,13 +52,11 @@ paintings:
 - **Manifest**: keys/paths/anchors are mirrored 1:1 in
   `src/assets/battleEnvironmentAssets.ts`. If this contract and the manifest
   ever disagree, fix the discrepancy before producing art.
-- **Availability**: both backgrounds are `status: 'pending'`. A draft file
-  may already sit at a `pending` asset's path (e.g. the current
-  `battle_bg_upper.webp`, produced under the superseded five-asset contract)
-  — its presence does not promote the asset. Only a human editing the
-  manifest's `status` to `'available'` (with the file's real measured
-  `productionSize`) marks a background as final. See
-  `tests/assets/environmentAssetFiles.test.ts`.
+- **Availability**: both backgrounds are `status: 'available'` — the final
+  illustrations are deposited at their manifest paths with their real,
+  measured `productionSize`, and validated by
+  `tests/assets/environmentAssetFiles.test.ts` (existence, real WebP
+  container, decoded dimensions, header-level opacity check).
 - **No gameplay content**: no asset may contain hexagon cells, stones,
   ingredients placed on the cutting area, characters, HUD, or text.
 - **Uniform scaling only**: assets are never stretched anisotropically at
@@ -69,35 +67,40 @@ paintings:
   `design/VISUAL_COMPOSITION.md`, `design/references/ART_TARGET.md` — warm
   handcrafted fantasy kitchen, organic silhouettes, controlled asymmetry,
   aged materials. The master image defines the palette and lighting.
-- **Validation** (both assets): once `available`, the export placed in the
-  `assetSlots=1` review mode must fill its colored slot at 360×640, 480×720
-  and 768×1024 without revealing gaps at the documented seam, and the three
-  normal-mode visual baselines must remain untouched (assets are not loaded
-  in Lot 1; this criterion binds the *future* integration lot).
+- **Validation** (both assets): the export placed in the `assetSlots=1`
+  review mode must fill its colored slot at 360×640, 480×720 and 768×1024
+  without revealing gaps at the documented seam, and the three normal-mode
+  visual baselines must remain untouched (neither asset is loaded in Lot 1;
+  this criterion binds the *future* integration lot).
 
 Depth values reference `src/scenes/depth.ts`.
 
 ---
 
-## Target dimensions
+## Production dimensions
 
-| Asset | Status | Target dimensions | Ratio |
+These are the **real, measured dimensions** read from each file's own VP8L
+header (see `tests/assets/environmentAssetFiles.test.ts`), not aspirational
+targets — mirrored by the manifest's `productionSize` field
+(`src/assets/battleEnvironmentAssets.ts`).
+
+| Asset | Status | Production dimensions | Ratio |
 |---|---|---:|---:|
-| `battle_bg_upper.webp` | pending | 1536 × 1024 (target) | 1.500 |
-| `battle_bg_lower.webp` | pending | 1536 × 1280 (target) | 1.200 |
+| `battle_bg_upper.webp` | **available** | 1536 × 1024 | 1.500 |
+| `battle_bg_lower.webp` | **available** | 1536 × 1280 | 1.200 |
 
 Rules:
 
-- For a `pending` asset, dimensions are recommendations for the
-  `source/` → `exports/` pipeline, mirrored by the manifest's documentary
-  `targetSize` field — never a runtime coordinate.
-- Once an asset is produced and its status flips to `available`, its
-  manifest entry switches from `targetSize` to a `productionSize` field
-  holding the file's real, measured dimensions (read from its own WebP
-  header), and `tests/assets/environmentAssetFiles.test.ts` validates the
-  shipped file against it.
-- Both final files must be opaque WebP — no anisotropic stretch at export
-  time or at runtime.
+- Dimensions above are **documentary facts about the shipped file**, not
+  runtime coordinates — runtime placement comes exclusively from
+  `computeBattleEnvironmentLayout` and the runtime scale stays uniform.
+- Both final files are real WebP (VP8L, lossless) and opaque: their header's
+  `alpha_is_used` bit is unset, checked automatically by
+  `tests/assets/environmentAssetFiles.test.ts` (a header-level signal, not a
+  full per-pixel decode — see that test and `tests/assets/webpHeader.ts` for
+  the documented limit).
+- No final file may ever be stretched anisotropically, at export time or at
+  runtime.
 
 ---
 
@@ -106,7 +109,7 @@ Rules:
 | Field | Value |
 |---|---|
 | File | `public/assets/battle/environment/background/battle_bg_upper.webp` |
-| Status | **Pending** — a draft file exists at this path from the superseded five-asset contract but does not yet bake in the integrated left/right decor this contract requires |
+| Status | **Available** — final file deposited and validated |
 | Phaser key | `battle-env-bg-upper` |
 | File type | WebP |
 | Transparency | **Opaque** — no alpha |
@@ -168,7 +171,7 @@ readable over it; ends exactly where `battleBackgroundLower` begins.
 | Field | Value |
 |---|---|
 | File | `public/assets/battle/environment/background/battle_bg_lower.webp` |
-| Status | **Pending — not yet produced** |
+| Status | **Available** — final file deposited and validated |
 | Phaser key | `battle-env-bg-lower` |
 | File type | WebP |
 | Transparency | **Opaque** — no alpha |
