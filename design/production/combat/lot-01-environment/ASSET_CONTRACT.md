@@ -114,7 +114,7 @@ Rules:
 | File type | WebP |
 | Transparency | **Opaque** — no alpha |
 | Anchor | `(0.5, 0)` — top-center |
-| Depth | `DEPTH.BACKGROUND` (0), drawn first |
+| Depth | `DEPTH.BACKGROUND` (-20, since the 2026-07-18 Lot 2 board refactor — reversed from the earlier 0 so the puzzle-defined lower band renders in front of it at their shared seam), drawn first |
 | Responsive policy | `viewportCover` |
 
 **Artistic role.** The entire upper scene in one painting: vault/ceiling,

@@ -118,10 +118,12 @@ for (const vp of FORMATS) {
     expect(depths.table).toBeLessThan(depths.hero);
     expect(depths.table).toBeLessThan(depths.monster);
     expect(depths.table).toBeLessThan(depths.board);
-    // 2026-07-19: the lower background must also render strictly behind the
-    // upper background — any sub-pixel mask-edge imprecision at their shared
-    // seam then falls harmlessly behind it instead of painting over it.
-    expect(depths.table).toBeLessThan(depths.background);
+    // 2026-07-18 Lot 2 (reverses the 2026-07-19 ordering): the upper
+    // background must render strictly BEHIND the lower band now, since the
+    // puzzle board defines the lower band and is the dominant element — any
+    // sub-pixel mask-edge imprecision at the shared seam falls harmlessly
+    // behind the lower band's own visuals instead of painting over them.
+    expect(depths.background).toBeLessThan(depths.table);
 
     // All four heroes (shadow + shape each) are actually drawn, not silently
     // dropped — the object-count-level companion to the depth check above.

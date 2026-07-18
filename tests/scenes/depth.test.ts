@@ -1,14 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { DEPTH } from '../../src/scenes/depth';
 
-// Regression guard for the 2026-07-18/19 review fixes: the lower battle
-// environment background (rendered in tableContainer, DEPTH.TABLE) is a full
-// opaque painting across the whole prep band, not a thin table-edge lip — it
-// must never be able to render in front of the heroes/boss/board even if a
-// placeholder footprint temporarily extends into that band (2026-07-18), and
-// it must render strictly BEHIND battleBackgroundUpper (DEPTH.BACKGROUND) so
-// any sub-pixel mask-edge imprecision at the two backgrounds' shared seam
-// falls harmlessly behind the upper painting rather than over it (2026-07-19).
+// Regression guard for the 2026-07-18/19 review fixes and the 2026-07-18
+// Lot 2 board-responsive refactor: the lower battle environment background
+// (rendered in tableContainer, DEPTH.TABLE) is a full opaque painting across
+// the whole prep band, not a thin table-edge lip — it must never be able to
+// render in front of the heroes/boss/board even if a placeholder footprint
+// temporarily extends into that band (2026-07-18). Its z-order relationship
+// with battleBackgroundUpper was REVERSED by the Lot 2 refactor: now that the
+// puzzle board defines the lower band and battleBackgroundLower is hidden
+// behind the temporary lower surface/frame in normal gameplay, the upper
+// background must render strictly BEHIND the lower band's own layers, so any
+// sub-pixel mask-edge imprecision at their shared seam falls harmlessly
+// behind the lower band instead of painting over it.
 describe('DEPTH — z-order invariants', () => {
   it('keeps the lower background strictly behind the heroes, the boss, and the board', () => {
     expect(DEPTH.TABLE).toBeLessThan(DEPTH.HERO);
@@ -16,8 +20,10 @@ describe('DEPTH — z-order invariants', () => {
     expect(DEPTH.TABLE).toBeLessThan(DEPTH.BOARD);
   });
 
-  it('keeps the lower background strictly behind the upper background', () => {
-    expect(DEPTH.TABLE).toBeLessThan(DEPTH.BACKGROUND);
+  it('keeps the upper background strictly behind the lower band (table/surface/frame) — reversed by Lot 2', () => {
+    expect(DEPTH.BACKGROUND).toBeLessThan(DEPTH.TABLE);
+    expect(DEPTH.BACKGROUND).toBeLessThan(DEPTH.LOWER_SURFACE);
+    expect(DEPTH.BACKGROUND).toBeLessThan(DEPTH.BOARD_FRAME);
   });
 
   it('keeps the upper background and its retired environment layer behind everything else', () => {
