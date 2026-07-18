@@ -194,7 +194,7 @@ describe('computeResponsiveBoardGeometry — fits the honeycomb to an arbitrary 
     const rect = { x: 0, y: 0, width: 380, height: 1000 }; // width-bound
     const g = computeResponsiveBoardGeometry(rect, 20);
     expect(g.tileBounds.width).toBeCloseTo(rect.width, 6);
-    const biggerScale = g.scale * 1.01;
+    const biggerScale = g.scale! * 1.01;
     const overflowWidth = 6 * (56 * biggerScale) + 2 * (22 * biggerScale);
     expect(overflowWidth).toBeGreaterThan(rect.width);
   });
