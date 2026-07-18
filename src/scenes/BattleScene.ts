@@ -21,7 +21,7 @@ import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
 import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } from './combatBackgroundReview';
 import type { ArtReviewMode } from './combatBackgroundReview';
-import { computeBattleEnvironmentLayout, placementToRect, DEFAULT_ENVIRONMENT_SLOT_POLICY } from './battleEnvironmentLayout';
+import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
 import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
 import { BATTLE_ENVIRONMENT_ASSETS } from '../assets/battleEnvironmentAssets';
 import combatBackgroundTargetUrl from '../../design/references/combat-background-target.png?url';
@@ -36,20 +36,14 @@ const ART_REVIEW_BACKGROUND_KEY = 'combat-background-target';
 // from battleEnvironmentLayout).
 const ASSET_SLOT_COLORS: Record<BattleEnvironmentRole, number> = {
   battleBackgroundUpper: 0x4d79ff,
-  leftHearth: 0xff8c3a,
-  rightLarder: 0x6fce44,
-  prepTableBase: 0xd8a03c,
-  cuttingBoard: 0xe85bd8,
+  battleBackgroundLower: 0xd8a03c,
 };
 
 // Where each slot's small technical label sits inside its rect, so labels of
 // adjacent/nested slots never stack on the same corner.
 const ASSET_SLOT_LABEL_ANCHORS: Record<BattleEnvironmentRole, { x: number; y: number }> = {
   battleBackgroundUpper: { x: 0, y: 0 },
-  leftHearth: { x: 0, y: 0 },
-  rightLarder: { x: 1, y: 0 },
-  prepTableBase: { x: 0, y: 1 },
-  cuttingBoard: { x: 0.5, y: 0 },
+  battleBackgroundLower: { x: 0, y: 0 },
 };
 
 const COLOR_HEX: Record<ElementColor, number> = {
@@ -664,7 +658,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // Lot-01 production overlay (&assetSlots=1, only inside the combatBackground
-  // review mode). Draws the five FUTURE environment assets' placements as
+  // review mode). Draws the two FUTURE environment backgrounds' placements as
   // semi-transparent role-colored rects + one small technical label each
   // (diagnostic only — no UI panel). Geometry comes exclusively from
   // computeBattleEnvironmentLayout(activeLayout) — no hand-copied coordinate —
@@ -694,11 +688,11 @@ export class BattleScene extends Phaser.Scene {
         .setOrigin(anchor.x, anchor.y);
       this.assetSlotsContainer.add(label);
     }
-    // Serialized six-slot layout + the active slot policy, observable without
-    // canvas reads (and without ?debug=1): e2e cross-checks both against the
-    // same pure module in Node.
+    // Serialized two-slot layout, observable without canvas reads (and
+    // without ?debug=1): e2e cross-checks it against the same pure module in
+    // Node. No slot policy is serialized anymore — computeBattleEnvironmentLayout
+    // no longer takes one (see battleEnvironmentLayout.ts).
     document.body.setAttribute('data-asset-slots-layout', JSON.stringify(env));
-    document.body.setAttribute('data-asset-slots-policy', JSON.stringify(DEFAULT_ENVIRONMENT_SLOT_POLICY));
   }
 
   // Redraws the HP text/bar and mirrors the current HP into a DOM

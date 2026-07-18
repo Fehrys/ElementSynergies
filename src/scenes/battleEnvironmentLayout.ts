@@ -1,12 +1,12 @@
-// Pure, Phaser-free and DOM-free placement model for the five Lot 1 combat
-// environment assets (see design/production/combat/lot-01-environment/
+// Pure, Phaser-free and DOM-free placement model for the two Lot 1 combat
+// environment background assets (see design/production/combat/lot-01-environment/
 // ASSET_CONTRACT.md). It CONSUMES an already-computed BattleLayout and derives
-// five placements from its semantic frontiers — it never feeds anything back
-// into battleLayout/boardGeometry/compositionLayout (gameplay math is strictly
-// upstream of this module), and no coordinate here is copied from the
-// reference image. Consumed today only by the &assetSlots=1 diagnostic overlay
-// in BattleScene; the future asset-integration lot will reuse the exact same
-// placements.
+// two placements from its only remaining semantic frontier — it never feeds
+// anything back into battleLayout/boardGeometry/compositionLayout (gameplay
+// math is strictly upstream of this module), and no coordinate here is
+// copied from the reference image. Consumed today only by the &assetSlots=1
+// diagnostic overlay in BattleScene; the future asset-integration lot will
+// reuse the exact same placements.
 import type { BattleLayout, Rect } from './battleLayout';
 
 // Anchor-point convention (matches Phaser): `x`/`y` locate the point of the
@@ -21,46 +21,9 @@ export interface AssetPlacement {
   originY: number;
 }
 
-export const ENVIRONMENT_ROLES = [
-  'battleBackgroundUpper',
-  'leftHearth',
-  'rightLarder',
-  'prepTableBase',
-  'cuttingBoard',
-] as const;
+export const ENVIRONMENT_ROLES = ['battleBackgroundUpper', 'battleBackgroundLower'] as const;
 
 export type BattleEnvironmentLayout = Record<(typeof ENVIRONMENT_ROLES)[number], AssetPlacement>;
-
-// Every tunable of the slot model lives HERE (single readable policy — never
-// scattered magic numbers). These are art-direction placeholders to be tuned
-// against the produced assets, not gameplay values.
-export interface EnvironmentSlotPolicy {
-  // Side clusters (hearth / larder): width = min(fraction × viewport width, cap),
-  // so phones compress/crop the clusters and tablets never let them balloon
-  // toward the gameplay column.
-  clusterWidthFraction: number; // 0.30
-  clusterMaxWidth: number; // 220 game units
-  // Cutting board visual margins around board.tileBounds, expressed as
-  // FRACTIONS OF tileBounds so the wooden frame follows the board's own
-  // responsive scale at every format (uniform scaling by construction).
-  cuttingBoardSideMarginFraction: number; // 0.07 of tileBounds.width, each side
-  cuttingBoardTopMarginFraction: number; // 0.09 of tileBounds.height
-  cuttingBoardBottomMarginFraction: number; // 0.13 of tileBounds.height (groove/lip side)
-  // Minimum clearance (logical px) between the stone/wood seam (table.y) and
-  // the board's top edge. When the natural frame would crowd or cross the
-  // seam, the VISUAL slot alone shifts down on Y — the puzzle, tileBounds,
-  // the slot's size/ratio/X and the side margins are never touched.
-  minimumBoardTopGap: number; // 8
-}
-
-export const DEFAULT_ENVIRONMENT_SLOT_POLICY: EnvironmentSlotPolicy = {
-  clusterWidthFraction: 0.3,
-  clusterMaxWidth: 220,
-  cuttingBoardSideMarginFraction: 0.07,
-  cuttingBoardTopMarginFraction: 0.09,
-  cuttingBoardBottomMarginFraction: 0.13,
-  minimumBoardTopGap: 8,
-};
 
 export function placementToRect(p: AssetPlacement): Rect {
   return {
@@ -71,93 +34,37 @@ export function placementToRect(p: AssetPlacement): Rect {
   };
 }
 
-// Derives the five slots from the layout's SEMANTIC frontiers only:
-// - viewport            = layout.background
-// - stone/wood seam     = layout.table.y (bands.hero.bottom + tableTopGap)
-// - preparation band    = layout.table (full-bleed, validated)
-// - cluster upper bound = layout.bands.monster.top
-// - puzzle support      = layout.board.tileBounds (+ policy margins)
-// Read-only over `layout`; deterministic (no RNG, no DOM, no time).
-//
-// `horizonY` (the old wall/floor seam) stays a layout-internal reference
-// point — it no longer produces its own slot: the upper background asset now
-// spans the full y ∈ [0, table.y] band in one cover-fit painting that already
-// contains the vault, walls, arches and the stone combat floor.
-export function computeBattleEnvironmentLayout(
-  layout: BattleLayout,
-  policy: EnvironmentSlotPolicy = DEFAULT_ENVIRONMENT_SLOT_POLICY,
-): BattleEnvironmentLayout {
+// Derives the two full-viewport-width background slots from the layout's
+// only remaining semantic frontier: the stone/wood seam (`layout.table.y`).
+// - battleBackgroundUpper spans y ∈ [0, table.y]: vault, walls, arches, the
+//   stone combat floor, and (now baked in) the cooking station and food
+//   reserve that used to be separate edge clusters.
+// - battleBackgroundLower spans y ∈ [table.y, viewport bottom]: the full
+//   wooden preparation surface with the cutting board painted directly into
+//   it, replacing the former separate table + cutting-board assets.
+// Read-only over `layout`; deterministic (no RNG, no DOM, no time); no
+// tunable policy remains once both placements are pure functions of
+// layout.background and layout.table.y.
+export function computeBattleEnvironmentLayout(layout: BattleLayout): BattleEnvironmentLayout {
   const viewport = layout.background;
-  const prepTopY = layout.table.y; // stone/wood separation
-  const clusterTopY = layout.bands.monster.top;
-  const clusterWidth = Math.min(viewport.width * policy.clusterWidthFraction, policy.clusterMaxWidth);
-
-  const tiles = layout.board.tileBounds;
-  const columnCenterX = layout.gameplayColumn.x + layout.gameplayColumn.width / 2;
-  const sideMargin = tiles.width * policy.cuttingBoardSideMarginFraction;
-  const topMargin = tiles.height * policy.cuttingBoardTopMarginFraction;
-  const bottomMargin = tiles.height * policy.cuttingBoardBottomMarginFraction;
-  const boardWidth = tiles.width + 2 * sideMargin;
-  const boardHeight = tiles.height + topMargin + bottomMargin;
-  // Y-only clamp: the board frame's top edge must stay at least
-  // minimumBoardTopGap below the stone/wood seam. Priority if a tiny
-  // viewport ever forced a trade-off: puzzle content, then this top gap,
-  // then the bottom lip's visibility (which may crop — gameplay never
-  // shrinks to compensate).
-  const boardTop = Math.max(tiles.y - topMargin, prepTopY + policy.minimumBoardTopGap);
+  const seamY = layout.table.y;
 
   return {
-    // Vault / walls / boss alcove / stone combat floor: one viewport-wide band
-    // from the top edge down to the stone/wood seam; the future asset
-    // cover-fits this whole band (may crop laterally on phones, extends on
-    // tablets — never stretched). This single slot replaces the former
-    // upperArchitecture + stoneFloor pair — the wall/floor seam (`horizonY`)
-    // is no longer an asset-slot boundary, only an internal layout reference.
     battleBackgroundUpper: {
       x: viewport.width / 2,
       y: 0,
       width: viewport.width,
-      height: prepTopY,
+      height: seamY,
       originX: 0.5,
       originY: 0,
     },
-    // Side prop clusters: edge-anchored, standing on the stone/wood seam,
-    // rising to the monster band's top. They compress/crop at the edges and
-    // can never influence the gameplay column (pure read of the layout).
-    leftHearth: {
-      x: 0,
-      y: prepTopY,
-      width: clusterWidth,
-      height: prepTopY - clusterTopY,
-      originX: 0,
-      originY: 1,
-    },
-    rightLarder: {
-      x: viewport.width,
-      y: prepTopY,
-      width: clusterWidth,
-      height: prepTopY - clusterTopY,
-      originX: 1,
-      originY: 1,
-    },
-    // The wooden preparation band IS layout.table, 1:1.
-    prepTableBase: {
-      x: layout.table.x,
-      y: layout.table.y,
-      width: layout.table.width,
-      height: layout.table.height,
-      originX: 0,
-      originY: 0,
-    },
-    // Puzzle support: tileBounds grown by the margin policy, centered on the
-    // gameplay column. Never follows layout.table's full-bleed width.
-    cuttingBoard: {
-      x: columnCenterX,
-      y: boardTop + boardHeight / 2,
-      width: boardWidth,
-      height: boardHeight,
+    battleBackgroundLower: {
+      x: viewport.width / 2,
+      y: seamY,
+      width: viewport.width,
+      height: viewport.height - seamY,
       originX: 0.5,
-      originY: 0.5,
+      originY: 0,
     },
   };
 }
