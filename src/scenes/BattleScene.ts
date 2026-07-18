@@ -19,15 +19,7 @@ import type { BattleLayout, ViewportInput } from './battleLayout';
 import { readSafeInsetsCss, getCanvasRect, subscribeViewportChanges } from './browserViewport';
 import { drawSpecialTileIcon } from './specialTileIcons';
 import { DEPTH } from './depth';
-import {
-  parseArtReviewMode,
-  parseArtGuides,
-  parseAssetSlots,
-  computeCoverFit,
-  computeOverscaledCoverFit,
-  LOWER_BACKGROUND_REFERENCE_SCALE,
-  LOWER_BACKGROUND_MAX_OVERSCALE,
-} from './combatBackgroundReview';
+import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } from './combatBackgroundReview';
 import type { ArtReviewMode } from './combatBackgroundReview';
 import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
 import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
@@ -582,20 +574,11 @@ export class BattleScene extends Phaser.Scene {
       this.environmentBackgrounds[role] = entry;
     }
 
-    // battleBackgroundLower gets an extra geometry-driven overscale on top of
-    // plain cover so its cutting board stays legible on narrow phones (see
-    // LOWER_BACKGROUND_REFERENCE_SCALE); battleBackgroundUpper keeps plain cover.
-    const fit =
-      role === 'battleBackgroundLower'
-        ? computeOverscaledCoverFit(
-            def.productionSize.width,
-            def.productionSize.height,
-            rect.width,
-            rect.height,
-            LOWER_BACKGROUND_REFERENCE_SCALE,
-            LOWER_BACKGROUND_MAX_OVERSCALE,
-          )
-        : computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
+    // Plain isotropic cover for both backgrounds (2026-07-19 review fix: the
+    // overscale previously applied to battleBackgroundLower is retired — it
+    // produced an inconsistent crop/identity between formats and fought the
+    // simple, predictable "minimum cover" rule this asset contract wants).
+    const fit = computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
     entry.sprite.setDisplaySize(fit.displayWidth, fit.displayHeight);
     entry.sprite.setPosition(rect.x + fit.x, rect.y + fit.y);
 

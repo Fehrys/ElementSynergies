@@ -5,12 +5,11 @@
 // this is the canonical reference table so container order is never guessed.
 // TABLE sits below BACKGROUND (2026-07-19 review fix): battleBackgroundLower
 // must render strictly BEHIND battleBackgroundUpper, not in front of it — the
-// two are confined to disjoint bands by their own GeometryMasks, but the
-// lower background's overscale (see combatBackgroundReview.ts) renders far
-// more raw content than its band shows, so any sub-pixel mask-edge imprecision
-// at the seam must fall harmlessly behind the upper painting rather than
-// paint over it. TABLE also still stays below MONSTER/HERO/BOARD (2026-07-18
-// fix) so it can never cover the heroes/boss/tiles either.
+// two are confined to disjoint bands by their own GeometryMasks, but any
+// sub-pixel mask-edge imprecision at their shared seam must fall harmlessly
+// behind the upper painting rather than paint over it. TABLE also still stays
+// below MONSTER/HERO/BOARD (2026-07-18 fix) so it can never cover the
+// heroes/boss/tiles either.
 export const DEPTH = {
   TABLE: -10,
   BACKGROUND: 0,

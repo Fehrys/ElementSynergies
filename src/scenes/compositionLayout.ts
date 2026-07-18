@@ -83,52 +83,95 @@ const HERO_WIDTH = 50;
 const HERO_HEIGHT = 70;
 const HERO_COUNT = 4;
 // px kept between the boss footprint's bottom edge and the hero row's top
-// edge (2026-07-18 Lot 2 review fix). Heroes were previously grounded on the
-// hero/table composition bands, which grow proportionally taller than the
-// FIXED-pixel boss/hero placeholder shapes as viewport height increases — the
-// boss stayed roughly centered in an increasingly tall monster band while the
-// heroes stayed pinned to the (also growing) bottom of the hero band, so the
-// visual gap between them widened from ~12px at 360x640 to over 100px at
-// 768x1024. Anchoring the hero row directly to the boss's own rect keeps that
-// gap constant across every viewport instead.
+// edge, at combatScale 1 (2026-07-18 Lot 2 review fix). Heroes were
+// previously grounded on the hero/table composition bands, which grow
+// proportionally taller than the FIXED-pixel boss/hero placeholder shapes as
+// viewport height increases — the boss stayed roughly centered in an
+// increasingly tall monster band while the heroes stayed pinned to the (also
+// growing) bottom of the hero band, so the visual gap between them widened
+// from ~12px at 360x640 to over 100px at 768x1024. Anchoring the hero row
+// directly to the boss's own rect keeps that gap proportionally constant
+// across every viewport instead (scaled by combatScale like the rest of the
+// group — see computePlaceholderLayout).
 const BOSS_HERO_GAP = 12;
 // Legacy grounding constant, now used only as a safety ceiling (see below) —
-// the fixed-pixel boss+gap+hero footprint (140 + 12 + 70 = 222px) can exceed
-// the ENTIRE available height on an extreme short/landscape viewport, where
-// the compressed composition bands would otherwise leave more headroom.
+// the fixed-pixel boss+gap+hero footprint can exceed the ENTIRE available
+// height on an extreme short/landscape viewport, where the compressed
+// composition bands would otherwise leave more headroom.
 const HERO_TABLE_OVERLAP = 8;
+// Never let the downward nudge (below) push the heroes closer than this to
+// the table's top edge.
+const MIN_HERO_TABLE_GAP = 40;
+// Fraction of the slack between the heroes' natural position and
+// (table.y - MIN_HERO_TABLE_GAP) removed by nudging the whole boss+hero group
+// down together — reads as the group being grounded near the table instead of
+// floating in the middle of a tall combat band on large viewports. Only ever
+// adds a non-negative offset (never moves the group up).
+const GROUP_DOWNWARD_FRACTION = 0.5;
 
-export function computePlaceholderLayout(regions: LayoutRegions): PlaceholderLayout {
+// combatScale (2026-07-19 review fix): grows the boss/hero footprint on
+// larger viewports instead of leaving it pinned to the small-screen baseline
+// forever. The caller (battleLayout.ts) resolves this from the board's own
+// isotropic scale (board.rowHeight / 48 — "the responsive scale the
+// composition already uses", derived from both the gameplay column's width
+// and the table span's height, and already bounded by policy.maxBoardScale)
+// clamped to a floor of 1 so the boss/heroes never shrink below their
+// long-standing baseline footprint (MONSTER_WIDTH/HEIGHT, HERO_WIDTH/HEIGHT)
+// on narrow/short viewports — only ever grows on larger ones.
+export function computePlaceholderLayout(
+  regions: LayoutRegions,
+  combatScale: number,
+  tableY: number,
+): PlaceholderLayout {
+  const monsterWidth = MONSTER_WIDTH * combatScale;
+  const monsterHeight = MONSTER_HEIGHT * combatScale;
+  const heroWidth = HERO_WIDTH * combatScale;
+  const heroHeight = HERO_HEIGHT * combatScale;
+  const gap = BOSS_HERO_GAP * combatScale;
+
   const monsterCenterX = (regions.boardWidthBand.left + regions.boardWidthBand.right) / 2;
   const monsterCenterY = regions.monster.top + regions.monster.height / 2;
-  const monster: Rect = {
-    x: monsterCenterX - MONSTER_WIDTH / 2,
-    y: monsterCenterY - MONSTER_HEIGHT / 2,
-    width: MONSTER_WIDTH,
-    height: MONSTER_HEIGHT,
-  };
+  let monsterY = monsterCenterY - monsterHeight / 2;
 
   // Heroes are anchored to the boss's own footprint (not to the hero/table
   // composition bands) so the boss/hero visual relationship stays constant
   // across viewports — see BOSS_HERO_GAP above. But never LOWER (larger y)
   // than the legacy band-grounded position: on an extreme short/landscape
   // viewport the compressed hero/board bands still guarantee enough room for
-  // the board below the heroes, while the fixed-pixel boss anchor alone does
-  // not — so the smaller (higher-up) of the two always wins. At every
-  // reference format (360x640/480x720/768x1024) the boss anchor is already
-  // the smaller value, so this ceiling is a no-op there.
-  const heroYFromBoss = monster.y + monster.height + BOSS_HERO_GAP;
-  const heroYFromBands = computeTableSpan(regions).top + HERO_TABLE_OVERLAP - HERO_HEIGHT;
-  const heroY = Math.min(heroYFromBoss, heroYFromBands);
+  // the board below the heroes, while the boss anchor alone does not — so the
+  // smaller (higher-up) of the two always wins. At every reference format
+  // (360x640/480x720/768x1024) the boss anchor is already the smaller value,
+  // so this ceiling is a no-op there.
+  const heroYFromBoss = monsterY + monsterHeight + gap;
+  const heroYFromBands = computeTableSpan(regions).top + HERO_TABLE_OVERLAP - heroHeight;
+  let heroY = Math.min(heroYFromBoss, heroYFromBands);
+
+  // Nudge the whole group (boss + heroes together, preserving their relative
+  // offset) down when there's excess empty room between the heroes' feet and
+  // the table beyond MIN_HERO_TABLE_GAP — grounds the group near the table on
+  // tall viewports instead of leaving a large dead zone below the heroes.
+  const heroBottom = heroY + heroHeight;
+  const slack = Math.max(0, tableY - heroBottom - MIN_HERO_TABLE_GAP);
+  const downwardNudge = slack * GROUP_DOWNWARD_FRACTION;
+  monsterY += downwardNudge;
+  heroY += downwardNudge;
+
+  const monster: Rect = {
+    x: monsterCenterX - monsterWidth / 2,
+    y: monsterY,
+    width: monsterWidth,
+    height: monsterHeight,
+  };
+
   const { left, width } = regions.boardWidthBand;
   const heroes: Rect[] = [];
   for (let i = 0; i < HERO_COUNT; i++) {
     const centerX = left + (width * (i + 0.5)) / HERO_COUNT;
     heroes.push({
-      x: centerX - HERO_WIDTH / 2,
+      x: centerX - heroWidth / 2,
       y: heroY,
-      width: HERO_WIDTH,
-      height: HERO_HEIGHT,
+      width: heroWidth,
+      height: heroHeight,
     });
   }
 
@@ -161,8 +204,8 @@ const BOSS_BAR_TOP_MARGIN = 36; // px below the topHud band's top edge
 // footprint (monster.width + padding) rather than a fixed pixel width, and the
 // text is centered on the same axis — so the HUD no longer pulls the upper
 // composition to the left. Placeholder footprint only (no final HUD art).
-export function computeBossHudLayout(regions: LayoutRegions): BossHudLayout {
-  const { monster } = computePlaceholderLayout(regions);
+export function computeBossHudLayout(regions: LayoutRegions, combatScale: number, tableY: number): BossHudLayout {
+  const { monster } = computePlaceholderLayout(regions, combatScale, tableY);
   const centerX = monster.x + monster.width / 2;
   const barWidth = monster.width + BOSS_BAR_WIDTH_PADDING;
   return {

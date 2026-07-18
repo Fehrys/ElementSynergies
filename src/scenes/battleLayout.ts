@@ -74,9 +74,11 @@ export interface BattleLayoutPolicy {
   // (which shifts under vertical-degradation compression on short viewports)
   // and of any fixed-pixel gap — either of those would make the ratio drift
   // with viewport size, which is exactly the bug this constant fixes.
-  // 0.5486111... = 395/720, chosen to keep the 480x720 composition baseline
-  // pixel-identical to its pre-existing table.y.
-  tableYFraction: number; // 0.5486111111111111
+  // Recalibrated 2026-07-19 (review fix): 0.5486 gave the upper combat scene
+  // too much of the screen and compressed the prep band; 0.51 gives the lower
+  // background/cutting board meaningfully more height while still leaving
+  // comfortable room for the HUD/boss/heroes above it.
+  tableYFraction: number; // 0.51
   bands: {
     // vertical composition ranges (percent of safeRect height) — single source
     topHud: [number, number]; // [4, 12]
@@ -139,7 +141,7 @@ export const DEFAULT_BATTLE_LAYOUT_POLICY: BattleLayoutPolicy = {
   boardVerticalBias: 0.62,
   columnSpacingReduction: 3,
   boardVerticalOffset: 0,
-  tableYFraction: 395 / 720,
+  tableYFraction: 0.51,
   bands: {
     // 2026-07-14: shifted +4pts vs. the original [0,8]/[8,34]/[34,46]/[46,93] baseline
     // to align the composition with design/references/combat-background-target.png —
@@ -325,6 +327,21 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   const liftRect = (r: Rect): Rect => ({ x: r.x + hOff, y: r.y + vOff, width: r.width, height: r.height });
   const liftBand = (b: Band): Band => ({ top: b.top + vOff, bottom: b.bottom + vOff, height: b.height });
 
+  // `table.y` (the combat/prep visual separation, also the exact seam between
+  // battleBackgroundUpper and battleBackgroundLower) is computed FIRST and
+  // GLOBALLY: a fixed fraction of safeRect.height, independent of every band/
+  // board/placeholder computation below — see policy.tableYFraction's doc
+  // comment (absolute rule, 2026-07-19). Computing it this early lets the
+  // combat-group placement below use the real table.y directly instead of a
+  // band-boundary proxy.
+  const tableY = safeRect.y + policy.tableYFraction * safeRect.height;
+  const table: Rect = {
+    x: 0,
+    y: tableY,
+    width,
+    height: height - tableY,
+  };
+
   // Composition in LOCAL space: horizontal extent = column width, vertical
   // extent = safeRect height. Band ranges come from the vertical-degradation
   // resolver (baseline-neutral at/above the reference height).
@@ -347,11 +364,15 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
   // compositionLayout.ts's BOSS_HERO_GAP), not grounded on the hero band's
   // boundary, so that abstract band boundary can no longer stand in for their
   // real position — on a heavily compressed viewport the two can diverge.
-  // Safe to compute from provisionalRegions here (not the board-width-refined
-  // regionsLocal below): hero verticals depend only on the monster/hero bands,
-  // never on tableWidthFraction — see computeLayoutRegions. All four heroes
-  // share the same y, so [0] is the real grounding line.
-  const provisionalHero = computePlaceholderLayout(provisionalRegions).heroes[0];
+  // Uses combatScale 1 (baseline, unscaled) here deliberately: the REAL
+  // combat-group scale is resolved from `board` below (circular — board isn't
+  // known yet), and this provisional value only matters as a floor-clamp
+  // input on extreme-compression viewports, where the real scale floors to 1
+  // anyway. Safe to compute from provisionalRegions (not the board-width-
+  // refined regionsLocal below): hero verticals depend only on the monster/
+  // hero bands, never on tableWidthFraction — see computeLayoutRegions. All
+  // four heroes share the same y, so [0] is the real grounding line.
+  const provisionalHero = computePlaceholderLayout(provisionalRegions, 1, tableY).heroes[0];
   const heroBottomGlobal = provisionalHero.y + provisionalHero.height + vOff;
   // Board geometry works entirely in GLOBAL space (global column + global table
   // span), so board.tileBounds/origin are already global.
@@ -378,27 +399,20 @@ export function computeBattleLayout(input: ViewportInput, policy: BattleLayoutPo
     safeBottom: liftBand(regionsLocal.safeBottom),
   };
 
-  // `table` is the lower composition band: full viewport width, starting at a
-  // FIXED fraction of safeRect.height (policy.tableYFraction) and running to
-  // the bottom of the viewport. This is deliberately NOT derived from
-  // bands.hero.bottom (which shifts under vertical-degradation compression on
-  // short viewports) or from any fixed-pixel gap — either would make the
-  // upper/lower background split ratio drift with viewport size. See
-  // policy.tableYFraction's doc comment (absolute rule, 2026-07-19) and
-  // docs/superpowers/specs/2026-07-14-align-layout-to-combat-background-design.md.
-  const tableY = safeRect.y + policy.tableYFraction * safeRect.height;
-  const table: Rect = {
-    x: 0,
-    y: tableY,
-    width,
-    height: height - tableY,
-  };
-
-  const placeholders = computePlaceholderLayout(regionsLocal);
+  // combatScale (2026-07-19 review fix) reuses the board's own isotropic
+  // scale — "the responsive scale the composition already uses", derived from
+  // both the gameplay column's width and the table span's height, already
+  // bounded by policy.maxBoardScale — floored at 1 so the boss/heroes never
+  // shrink below their long-standing baseline footprint on narrow/short
+  // viewports, only ever growing on larger ones. board.rowHeight / 48
+  // recovers the scale (48 = boardGeometry.ts's unscaled ROW_HEIGHT, the same
+  // recovery already used in tests, e.g. battleLayout.test.ts).
+  const combatScale = Math.min(policy.maxBoardScale, Math.max(1, board.rowHeight / 48));
+  const placeholders = computePlaceholderLayout(regionsLocal, combatScale, tableY);
   const boss = liftRect(placeholders.monster);
   const heroes = placeholders.heroes.map(liftRect);
 
-  const hudLocal = computeBossHudLayout(regionsLocal);
+  const hudLocal = computeBossHudLayout(regionsLocal, combatScale, tableY);
   const bossHud: BossHudLayout = {
     text: { x: hudLocal.text.x + hOff, y: hudLocal.text.y + vOff },
     bar: liftRect(hudLocal.bar),
