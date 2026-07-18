@@ -93,7 +93,7 @@ for (const vp of MATRIX) {
   });
 }
 
-test('lateral safe-area insets keep the board inside an offset column (via forceReflow)', async ({ page }) => {
+test('lateral safe-area insets keep the board inside the safe rect (via forceReflow)', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?seed=1&debug=1');
   await page.waitForSelector('[data-scene="battle"]');
@@ -104,7 +104,10 @@ test('lateral safe-area insets keep the board inside an offset column (via force
   const L = await getLayout(page);
   expect(L.safeRect).toEqual({ x: 16, y: 0, width: 390 - 16 - 24, height: 844 - 20 });
   expect(L.gameplayColumn.x).toBeGreaterThanOrEqual(L.safeRect.x - EPS);
-  expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.gameplayColumn.x - EPS);
+  // The board now respects safeRect directly (via availableBoardRect's
+  // inset-aware margins), not gameplayColumn — see boardArea.ts.
+  expect(L.board.tileBounds.x).toBeGreaterThanOrEqual(L.safeRect.x - EPS);
+  expect(L.board.tileBounds.x + L.board.tileBounds.width).toBeLessThanOrEqual(L.safeRect.x + L.safeRect.width + EPS);
   await playTurnAndAssertScores(page);
 });
 
