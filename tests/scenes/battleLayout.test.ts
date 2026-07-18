@@ -548,6 +548,144 @@ describe('2026-07-18 — boss/hero composition relationship (review fix)', () =>
       expect(h.y + h.height).toBeLessThanOrEqual(L.safeRect.y + L.safeRect.height + 1e-6);
     }
   });
+
+  it('keeps composition order HUD -> boss -> heroes -> table with readable gaps at every reference format', () => {
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      const hudBarBottom = L.bossHud.bar.y + L.bossHud.bar.height;
+      expect(hudBarBottom).toBeLessThan(L.boss.y); // no HUD/boss overlap
+      expect(L.boss.y + L.boss.height).toBeLessThan(L.heroes[0].y); // no boss/hero overlap
+      expect(L.heroes[0].y + L.heroes[0].height).toBeLessThan(L.table.y); // no hero/table overlap
+    }
+  });
+
+  it('does not leave a large dead zone below the heroes on the large reference format', () => {
+    // The 2026-07-19 review fix's downward-nudge target: at 768x1024 the gap
+    // between the heroes' feet and table.y must shrink substantially relative
+    // to what pure boss-anchoring (no nudge) alone would leave.
+    const L = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
+    const heroBottom = L.heroes[0].y + L.heroes[0].height;
+    const gap = L.table.y - heroBottom;
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThan(120); // well below the ~123px pre-nudge regression this fix targets
+  });
+});
+
+// 2026-07-19 — Lot 2 review fix: the boss/hero footprint now grows on larger
+// viewports (previously pinned to the small-screen baseline size forever) via
+// combatScale, resolved from the board's own isotropic scale and floored at 1.
+describe('2026-07-19 — combatScale grows the boss/hero footprint on large formats', () => {
+  const REFERENCE_FORMATS = [
+    { width: 360, height: 640 },
+    { width: 480, height: 720 },
+    { width: 768, height: 1024 },
+  ];
+
+  it('never shrinks the boss/heroes below the 360x640 baseline footprint at any reference format', () => {
+    const small = computeBattleLayout({ width: 360, height: 640, safeInsets: none }, P);
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      expect(L.boss.width).toBeGreaterThanOrEqual(small.boss.width - 1e-6);
+      expect(L.boss.height).toBeGreaterThanOrEqual(small.boss.height - 1e-6);
+      expect(L.heroes[0].width).toBeGreaterThanOrEqual(small.heroes[0].width - 1e-6);
+      expect(L.heroes[0].height).toBeGreaterThanOrEqual(small.heroes[0].height - 1e-6);
+    }
+  });
+
+  it('makes the boss and heroes strictly bigger at 768x1024 than at 360x640', () => {
+    const small = computeBattleLayout({ width: 360, height: 640, safeInsets: none }, P);
+    const large = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
+    expect(large.boss.width).toBeGreaterThan(small.boss.width);
+    expect(large.boss.height).toBeGreaterThan(small.boss.height);
+    expect(large.heroes[0].width).toBeGreaterThan(small.heroes[0].width);
+    expect(large.heroes[0].height).toBeGreaterThan(small.heroes[0].height);
+  });
+
+  it('preserves the boss and hero aspect ratios at every reference format', () => {
+    const BOSS_RATIO = 180 / 140;
+    const HERO_RATIO = 50 / 70;
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      expect(L.boss.width / L.boss.height).toBeCloseTo(BOSS_RATIO, 9);
+      expect(L.heroes[0].width / L.heroes[0].height).toBeCloseTo(HERO_RATIO, 9);
+    }
+  });
+
+  it('keeps all four heroes exactly the same size as each other at every reference format', () => {
+    for (const vp of REFERENCE_FORMATS) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      const [first, ...rest] = L.heroes;
+      for (const h of rest) {
+        expect(h.width).toBe(first.width);
+        expect(h.height).toBe(first.height);
+      }
+    }
+  });
+
+  it('scales the boss and heroes by the exact same factor (group grows together)', () => {
+    const small = computeBattleLayout({ width: 360, height: 640, safeInsets: none }, P);
+    const large = computeBattleLayout({ width: 768, height: 1024, safeInsets: none }, P);
+    const bossFactor = large.boss.width / small.boss.width;
+    const heroFactor = large.heroes[0].width / small.heroes[0].width;
+    expect(heroFactor).toBeCloseTo(bossFactor, 9);
+  });
+
+  it('bounds the growth by policy.maxBoardScale — never grows without limit', () => {
+    const huge = computeBattleLayout({ width: 2000, height: 3000, safeInsets: none }, P);
+    expect(huge.boss.width).toBeLessThanOrEqual(180 * P.maxBoardScale + 1e-6);
+    expect(huge.boss.height).toBeLessThanOrEqual(140 * P.maxBoardScale + 1e-6);
+  });
+
+  it('never entered via a per-width branch — grows smoothly with a nearby format too', () => {
+    // Guards against a hidden `if (width === 768)` special case: a format
+    // close to but not equal to the reference tablet size must also grow.
+    const near = computeBattleLayout({ width: 760, height: 1010, safeInsets: none }, P);
+    const small = computeBattleLayout({ width: 360, height: 640, safeInsets: none }, P);
+    expect(near.boss.width).toBeGreaterThan(small.boss.width);
+  });
+});
+
+// 2026-07-19 — Lot 2 review fix: policy.tableYFraction was recalibrated
+// (0.5486 -> 0.51) to give the lower background/cutting board meaningfully
+// more of the viewport height. These tests lock the resulting ratio.
+describe('2026-07-19 — table.y ratio stays constant and in the requested range', () => {
+  it('keeps table.y / viewport height within [0.50, 0.53] at every reference format', () => {
+    for (const vp of [
+      { width: 360, height: 640 },
+      { width: 480, height: 720 },
+      { width: 768, height: 1024 },
+    ]) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      const ratio = L.table.y / vp.height;
+      expect(ratio).toBeGreaterThanOrEqual(0.5);
+      expect(ratio).toBeLessThanOrEqual(0.53);
+    }
+  });
+
+  it('is the exact same ratio at every viewport size (the absolute rule)', () => {
+    const ratios = [
+      { width: 360, height: 640 },
+      { width: 480, height: 720 },
+      { width: 768, height: 1024 },
+      { width: 320, height: 568 },
+      { width: 1000, height: 1500 },
+    ].map((vp) => computeBattleLayout({ ...vp, safeInsets: none }, P).table.y / vp.height);
+    for (const r of ratios) expect(r).toBeCloseTo(ratios[0], 9);
+  });
+
+  it('reduces the upper share and grows the lower share versus the pre-2026-07-19 fraction', () => {
+    const OLD_FRACTION = 395 / 720;
+    for (const vp of [
+      { width: 360, height: 640 },
+      { width: 480, height: 720 },
+      { width: 768, height: 1024 },
+    ]) {
+      const L = computeBattleLayout({ ...vp, safeInsets: none }, { ...P, tableYFraction: OLD_FRACTION });
+      const now = computeBattleLayout({ ...vp, safeInsets: none }, P);
+      expect(now.table.y).toBeLessThan(L.table.y); // separation moved up
+      expect(now.table.height).toBeGreaterThan(L.table.height); // lower band grew
+    }
+  });
 });
 
 // 2026-07-18 — Lot 2 review fix: boardVerticalBias/boardVerticalOffset were

@@ -3,6 +3,7 @@ import { computeBattleLayout, DEFAULT_BATTLE_LAYOUT_POLICY } from '../../src/sce
 import type { BattleLayout } from '../../src/scenes/battleLayout';
 import { computeBattleEnvironmentLayout, placementToRect, ENVIRONMENT_ROLES } from '../../src/scenes/battleEnvironmentLayout';
 import { BATTLE_ENVIRONMENT_ASSETS, environmentAssetByRole } from '../../src/assets/battleEnvironmentAssets';
+import { computeCoverFit } from '../../src/scenes/combatBackgroundReview';
 import { cellToPixel } from '../../src/scenes/boardGeometry';
 import { getAllCells } from '../../src/core/grid';
 
@@ -185,5 +186,33 @@ describe('manifest consistency', () => {
       const { width, height, aspectRatio } = a.productionSize;
       expect(Math.abs(aspectRatio - width / height)).toBeLessThan(0.005);
     }
+  });
+});
+
+// 2026-07-19 review fix: the overscale previously applied to
+// battleBackgroundLower is fully retired — both backgrounds must use the
+// exact plain `computeCoverFit()` minimum-cover scale, with no boost, at
+// every reference format. Uses the real Lot 1 asset dimensions and the real
+// band geometry BattleScene actually renders with.
+describe.each(VIEWPORTS)('battleBackgroundLower uses plain cover (no overscale) at $width x $height', ({
+  width,
+  height,
+}) => {
+  it('resolves to exactly the plain cover fit — isotropic and never boosted', () => {
+    const layout = layoutAt(width, height);
+    const env = computeBattleEnvironmentLayout(layout);
+    const band = placementToRect(env.battleBackgroundLower);
+    const def = environmentAssetByRole('battleBackgroundLower');
+    if (def.status !== 'available') throw new Error('battleBackgroundLower must be available for this check');
+    const fit = computeCoverFit(def.productionSize.width, def.productionSize.height, band.width, band.height);
+
+    // Isotropic: a single scale drives both axes.
+    expect(fit.displayWidth / def.productionSize.width).toBeCloseTo(fit.displayHeight / def.productionSize.height, 9);
+    // scale === coverScale exactly (no multiplier applied on top).
+    const coverScale = Math.max(band.width / def.productionSize.width, band.height / def.productionSize.height);
+    expect(fit.scale).toBeCloseTo(coverScale, 9);
+    // Fully covers its band on both axes (the point of "cover").
+    expect(fit.displayWidth).toBeGreaterThanOrEqual(band.width - 1e-6);
+    expect(fit.displayHeight).toBeGreaterThanOrEqual(band.height - 1e-6);
   });
 });

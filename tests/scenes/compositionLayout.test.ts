@@ -17,6 +17,15 @@ const BANDS = DEFAULT_BATTLE_LAYOUT_POLICY.bands;
 const TABLE_WIDTH_FRACTION = DEFAULT_BATTLE_LAYOUT_POLICY.tableWidthFraction;
 const regions = (width: number, height: number) => computeLayoutRegions(width, height, BANDS, TABLE_WIDTH_FRACTION);
 
+// computePlaceholderLayout/computeBossHudLayout take the caller-resolved
+// combatScale and tableY (battleLayout.ts owns that resolution — see its
+// combatScale/tableY doc comments). At the 480x720 composition baseline with
+// no insets, the real pipeline resolves combatScale to exactly 1 (board scale
+// floored at 1) and tableY to policy.tableYFraction * CANVAS_HEIGHT — used
+// here so this file's assertions stay faithful to the real pipeline.
+const COMBAT_SCALE = 1;
+const TABLE_Y = DEFAULT_BATTLE_LAYOUT_POLICY.tableYFraction * CANVAS_HEIGHT;
+
 // Region math is proportional (height * pct), so results carry benign
 // floating-point noise (e.g. 187.20000000000002). Assert with tolerance.
 function expectBand(b: Band, top: number, bottom: number): void {
@@ -78,7 +87,7 @@ describe('computeLayoutRegions — explicit band ranges / tableWidthFraction par
 });
 
 describe('computePlaceholderLayout', () => {
-  const p = computePlaceholderLayout(regions(CANVAS_WIDTH, CANVAS_HEIGHT));
+  const p = computePlaceholderLayout(regions(CANVAS_WIDTH, CANVAS_HEIGHT), COMBAT_SCALE, TABLE_Y);
 
   it('places a dominant monster centered in the monster band', () => {
     expect(p.monster.x).toBeCloseTo(150, 5);
@@ -123,17 +132,17 @@ describe('computePlaceholderLayout', () => {
 
 describe('computeBossHudLayout', () => {
   const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
-  const hud = computeBossHudLayout(r);
+  const hud = computeBossHudLayout(r, COMBAT_SCALE, TABLE_Y);
 
   it('centers the boss HP text above the monster', () => {
-    const monster = computePlaceholderLayout(r).monster;
+    const monster = computePlaceholderLayout(r, COMBAT_SCALE, TABLE_Y).monster;
     expect(hud.text.x).toBeCloseTo(monster.x + monster.width / 2, 5); // 240
     expect(hud.text.x).toBeCloseTo(240, 5);
     expect(hud.text.y).toBeCloseTo(36.8, 5);
   });
 
   it('derives a centered bar from the monster footprint (monster.width + 60)', () => {
-    const monster = computePlaceholderLayout(r).monster;
+    const monster = computePlaceholderLayout(r, COMBAT_SCALE, TABLE_Y).monster;
     expect(hud.bar.width).toBeCloseTo(monster.width + 60, 5); // 240
     expect(hud.bar.height).toBe(12);
     expect(hud.bar.x).toBeCloseTo(120, 5);
@@ -145,7 +154,43 @@ describe('computeBossHudLayout', () => {
   it('keeps the HP presentation inside the topHud band with room before the monster', () => {
     const barBottom = hud.bar.y + hud.bar.height;
     expect(barBottom).toBeLessThanOrEqual(r.topHud.bottom);
-    expect(barBottom).toBeLessThan(computePlaceholderLayout(r).monster.y);
+    expect(barBottom).toBeLessThan(computePlaceholderLayout(r, COMBAT_SCALE, TABLE_Y).monster.y);
+  });
+});
+
+describe('computePlaceholderLayout — combatScale', () => {
+  const r = regions(CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  it('scales the monster and hero footprints isotropically and identically', () => {
+    const base = computePlaceholderLayout(r, 1, TABLE_Y);
+    const grown = computePlaceholderLayout(r, 1.25, TABLE_Y);
+    expect(grown.monster.width).toBeCloseTo(base.monster.width * 1.25, 6);
+    expect(grown.monster.height).toBeCloseTo(base.monster.height * 1.25, 6);
+    grown.heroes.forEach((h, i) => {
+      expect(h.width).toBeCloseTo(base.heroes[i].width * 1.25, 6);
+      expect(h.height).toBeCloseTo(base.heroes[i].height * 1.25, 6);
+    });
+  });
+
+  it('keeps all four heroes the same size as each other at any scale', () => {
+    const p = computePlaceholderLayout(r, 1.3, TABLE_Y);
+    const [first, ...rest] = p.heroes;
+    for (const h of rest) {
+      expect(h.width).toBe(first.width);
+      expect(h.height).toBe(first.height);
+    }
+  });
+
+  it('never shrinks the monster/hero footprint below scale 1, even if combatScale < 1', () => {
+    // computePlaceholderLayout itself trusts its caller's combatScale — the
+    // floor-at-1 clamp lives in battleLayout.ts (see combatScale's doc
+    // comment there); this only documents that passing exactly 1 reproduces
+    // the long-standing baseline footprint.
+    const p = computePlaceholderLayout(r, 1, TABLE_Y);
+    expect(p.monster.width).toBe(180);
+    expect(p.monster.height).toBe(140);
+    expect(p.heroes[0].width).toBe(50);
+    expect(p.heroes[0].height).toBe(70);
   });
 });
 
