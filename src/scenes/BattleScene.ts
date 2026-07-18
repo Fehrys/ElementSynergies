@@ -300,7 +300,7 @@ export class BattleScene extends Phaser.Scene {
       document.body.setAttribute('data-art-review-ready', 'true');
       // Lot-01 slot overlay surface: `ready` is only set here, AFTER the first
       // applyLayout() above already ran drawAssetSlots() over a fully computed
-      // layout — so waiting on it guarantees the five slots exist and
+      // layout — so waiting on it guarantees the two slots exist and
       // data-asset-slots-layout holds the first complete computation.
       if (this.assetSlotsEnabled) {
         document.body.setAttribute('data-asset-slots', 'true');
