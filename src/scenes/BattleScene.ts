@@ -23,7 +23,7 @@ import { parseArtReviewMode, parseArtGuides, parseAssetSlots, computeCoverFit } 
 import type { ArtReviewMode } from './combatBackgroundReview';
 import { computeBattleEnvironmentLayout, placementToRect } from './battleEnvironmentLayout';
 import type { BattleEnvironmentRole } from '../assets/battleEnvironmentAssets';
-import { BATTLE_ENVIRONMENT_ASSETS } from '../assets/battleEnvironmentAssets';
+import { BATTLE_ENVIRONMENT_ASSETS, environmentAssetByRole } from '../assets/battleEnvironmentAssets';
 import combatBackgroundTargetUrl from '../../design/references/combat-background-target.png?url';
 
 // Temporary art-review-only asset (see
@@ -74,6 +74,7 @@ export interface DebugApi {
   getArtReviewInfo(): { mode: ArtReviewMode; guides: boolean } | null; // art review debug surface
   getSelectionLength(): number; // selected-cell count (0 after a mid-drag cancel)
   getTracePointCount(): number; // drawn trace points (0 after a clear)
+  hasTexture(key: string): boolean; // Phaser texture-manager check (e.g. a background actually loaded)
 }
 
 declare global {
@@ -106,6 +107,14 @@ export class BattleScene extends Phaser.Scene {
   private artGuidesContainer!: Phaser.GameObjects.Container;
   private assetSlotsContainer!: Phaser.GameObjects.Container;
   private artReviewBackgroundSprite?: Phaser.GameObjects.Image;
+  // The two Lot 1 battle-environment backgrounds (see
+  // docs/superpowers/specs/2026-07-18-battle-environment-runtime-integration-design.md).
+  // One entry per role, created lazily on first draw and only
+  // resized/repositioned/remasked afterward — never destroyed/recreated —
+  // so a reflow can neither duplicate nor leak a sprite or its mask.
+  private environmentBackgrounds: Partial<
+    Record<BattleEnvironmentRole, { sprite: Phaser.GameObjects.Image; maskShape: Phaser.GameObjects.Graphics }>
+  > = {};
   private artReviewMode: ArtReviewMode = 'none';
   private artGuidesEnabled = false;
   private assetSlotsEnabled = false;
@@ -161,6 +170,16 @@ export class BattleScene extends Phaser.Scene {
   preload(): void {
     if (this.artReviewMode === 'combatBackground') {
       this.load.image(ART_REVIEW_BACKGROUND_KEY, combatBackgroundTargetUrl);
+    }
+    // Only 'available' manifest entries are ever fed to the loader — a
+    // 'pending' entry (if one ever existed again) must stay undetectable by
+    // the file-validation tests, never silently loaded anyway. Loaded
+    // unconditionally (normal play needs both), unlike the art-review-only
+    // reference image above.
+    for (const def of BATTLE_ENVIRONMENT_ASSETS) {
+      if (def.status === 'available') {
+        this.load.image(def.key, def.path);
+      }
     }
   }
 
@@ -220,6 +239,7 @@ export class BattleScene extends Phaser.Scene {
         }),
         getSelectionLength: () => this.path.length,
         getTracePointCount: () => this.tracePointCount,
+        hasTexture: (key) => this.textures.exists(key),
         getArtReviewInfo: () =>
           this.artReviewMode === 'none' ? null : { mode: this.artReviewMode, guides: this.artGuidesEnabled },
       };
@@ -508,87 +528,77 @@ export class BattleScene extends Phaser.Scene {
     this.tracePointCount = this.path.length; // one drawn point per selected cell
   }
 
-  // Persistent full-canvas background placeholder (stand-in for a future
-  // battle_background_* asset), replacing the flat Phaser config color. Two
-  // broad value zones — a darker upper arena wall and a slightly warmer/deeper
-  // lower work area behind the table — meet on a soft curved horizon (a wide
-  // overlapping ellipse plus low-alpha feather bands) rather than a hard,
-  // UI-like divider. Drawn ONCE; never touched by drawBoard(); non-interactive.
-  private drawBackground(): void {
-    this.backgroundContainer.removeAll(true); // idempotent: safe to redraw on reflow
-    // Art review mode masks the provisional colored background: the review
-    // background (the master reference image) is drawn separately, in its own
-    // container, by drawArtReviewBackground().
-    if (this.artReviewMode === 'combatBackground') return;
-    const bg = this.activeLayout.background;
-    const g = this.add.graphics();
-    const upper = 0x262042; // darker arena wall
-    const lower = 0x2e2636; // slightly warmer/deeper work area behind the table
-    // Base value covers the whole background/viewport.
-    g.fillStyle(upper, 1);
-    g.fillRect(bg.x, bg.y, bg.width, bg.height);
-    // Lower work area; its top is softened into a curved horizon by a wide
-    // ellipse that overlaps upward, so the two zones never meet on a straight line.
-    const horizonY = this.activeLayout.environment.horizonY; // behind/above the table rear edge
-    g.fillStyle(lower, 1);
-    g.fillRect(bg.x, horizonY, bg.width, bg.height - horizonY);
-    g.fillEllipse(bg.width / 2, horizonY, bg.width * 1.5, 150);
-    // Low-alpha bands feather the meeting of the two zones (no UI divider).
-    g.fillStyle(lower, 0.3);
-    g.fillRect(bg.x, horizonY - 70, bg.width, 70);
-    g.fillStyle(upper, 0.2);
-    g.fillRect(bg.x, horizonY, bg.width, 50);
-    this.backgroundContainer.add(g);
+  // Persistent, mask-confined renderer for one of the two Lot 1 battle
+  // environment backgrounds (see
+  // docs/superpowers/specs/2026-07-18-battle-environment-runtime-integration-design.md
+  // and design/production/combat/lot-01-environment/ASSET_CONTRACT.md). The
+  // sprite and its mask Graphics are created ONCE, lazily, then only
+  // resized/repositioned/remasked on every subsequent call — never destroyed
+  // or recreated — so a reflow can never duplicate or leak either. Band
+  // geometry always comes from computeBattleEnvironmentLayout(activeLayout)
+  // (both roles share the exact same layout.table.y seam, never
+  // independently recomputed), and the isotropic fit from the shared,
+  // role-agnostic computeCoverFit() — no hand-copied coordinate, no
+  // anisotropic stretch. Art review mode masks it exactly like the
+  // placeholders it replaced, so the two real backgrounds never fight the
+  // opaque master reference image for the same pixels.
+  private drawEnvironmentBackground(role: BattleEnvironmentRole, container: Phaser.GameObjects.Container): void {
+    const def = environmentAssetByRole(role);
+    if (this.artReviewMode === 'combatBackground' || def.status !== 'available') {
+      container.removeAll(true);
+      delete this.environmentBackgrounds[role];
+      return;
+    }
+
+    const rect = placementToRect(computeBattleEnvironmentLayout(this.activeLayout)[role]);
+
+    let entry = this.environmentBackgrounds[role];
+    if (!entry) {
+      const sprite = this.add.image(0, 0, def.key).setOrigin(0.5, 0.5);
+      // Never added to the display list (add:false) — it exists purely as
+      // the GeometryMask's geometry source, redrawn (not recreated) on every
+      // reflow below.
+      const maskShape = this.make.graphics({}, false);
+      sprite.setMask(maskShape.createGeometryMask());
+      container.add(sprite);
+      entry = { sprite, maskShape };
+      this.environmentBackgrounds[role] = entry;
+    }
+
+    const fit = computeCoverFit(def.productionSize.width, def.productionSize.height, rect.width, rect.height);
+    entry.sprite.setDisplaySize(fit.displayWidth, fit.displayHeight);
+    entry.sprite.setPosition(rect.x + fit.x, rect.y + fit.y);
+
+    // Confines the cover-fit sprite strictly to its band, cropping whichever
+    // axis the fit overflowed — the same rect both formats' upper/lower bands
+    // already share via layout.table.y, so the two masks can never seam.
+    entry.maskShape.clear();
+    entry.maskShape.fillStyle(0xffffff, 1);
+    entry.maskShape.fillRect(rect.x, rect.y, rect.width, rect.height);
   }
 
-  // Minimal, persistent environmental framing placeholder (stand-in for future
-  // props). Controlled asymmetry — a heavier cupboard silhouette on the left, a
-  // lighter set of hanging cookware on the right, and one off-center alcove arch
-  // behind the boss — so it frames the monster instead of reading as a symmetric
-  // dashboard. Flat Graphics only, non-interactive, all kept at y < 260 so no
-  // prop touches the tile bounds. Drawn ONCE; never touched by drawBoard().
+  // battleBackgroundUpper renders in the pre-existing backgroundContainer,
+  // already at DEPTH.BACKGROUND per the asset contract.
+  private drawBackground(): void {
+    this.drawEnvironmentBackground('battleBackgroundUpper', this.backgroundContainer);
+  }
+
+  // Retired: this container used to hold a flat cupboard (left) / hanging
+  // cookware (right) / alcove arch placeholder — a stand-in for the cooking
+  // station and food reserve. ASSET_CONTRACT.md bakes both directly into
+  // battleBackgroundUpper, so drawing this placeholder over the real
+  // painting would double the decoration. The container itself (and its
+  // DEPTH.ENVIRONMENT layer) is kept for future non-background props and so
+  // getLayerObjectCounts().environment stays a stable, always-present key.
   private drawEnvironment(): void {
     this.environmentContainer.removeAll(true); // idempotent: safe to redraw on reflow
-    // Art review mode masks the provisional arch/cupboard/cookware silhouettes:
-    // the master reference image already provides this framing.
-    if (this.artReviewMode === 'combatBackground') return;
-    const g = this.add.graphics();
-    // Off-center alcove arch behind the monster (slightly lighter than the wall).
-    g.fillStyle(0x2f2950, 1);
-    g.fillEllipse(230, 70, 300, 220);
-    // Left: a heavier cupboard/shelf silhouette.
-    g.fillStyle(0x231c14, 1);
-    g.fillRoundedRect(4, 84, 66, 168, 10);
-    g.fillStyle(0x2c2318, 1);
-    g.fillRect(10, 150, 54, 8); // one shelf line
-    // Right: lighter hanging cookware — deliberately NOT a mirror of the left.
-    g.fillStyle(0x241d16, 1);
-    g.fillRect(436, 56, 6, 86); // hanging rod
-    g.fillCircle(439, 150, 15); // a pan/ladle head
-    g.fillRect(452, 56, 6, 60); // second, shorter rod
-    g.fillRoundedRect(447, 116, 26, 16, 4); // a small hanging lantern/box
-    this.environmentContainer.add(g);
   }
 
-  // Persistent lower-composition-band placeholder, drawn ONCE in create(). Lives in
-  // its own container below the tile layer; drawBoard() never touches it. Since
-  // 2026-07-14 `layout.table` is a full-bleed rect from the combat/prep separation
-  // line to the bottom of the viewport (see battleLayout.ts), not a tile-hugging box,
-  // so it's rendered as a flat full-width panel rather than a tile-fitted rounded card.
+  // battleBackgroundLower (table + cutting board baked in) renders in the
+  // pre-existing tableContainer, already at DEPTH.TABLE per the asset
+  // contract — the puzzle tiles (DEPTH.BOARD) draw over it unchanged.
   private drawTable(): void {
-    this.tableContainer.removeAll(true); // idempotent: safe to redraw on reflow
-    // Art review mode masks the full brown table placeholder: the master
-    // reference image's chopping board must stay visible behind the board.
-    if (this.artReviewMode === 'combatBackground') return;
-    const t = this.activeLayout.table;
-    const g = this.add.graphics();
-    g.fillStyle(0x6b4a30, 1);
-    g.fillRect(t.x, t.y, t.width, t.height);
-    // A slightly darker rear-edge band to hint thickness/depth — still flat,
-    // no gradient/asset.
-    g.fillStyle(0x543a25, 1);
-    g.fillRect(t.x, t.y, t.width, 18);
-    this.tableContainer.add(g);
+    this.drawEnvironmentBackground('battleBackgroundLower', this.tableContainer);
   }
 
   // Art review mode only. No-op (and keeps the container empty) unless
